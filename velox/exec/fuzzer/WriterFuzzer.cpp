@@ -126,7 +126,7 @@ class WriterFuzzer {
       int32_t maxNumColumns,
       std::vector<std::string>& names,
       std::vector<TypePtr>& types,
-      std::vector<std::string>& bucketColumns);
+      const std::vector<std::string>& bucketColumns);
 
   // Generates input data for table write.
   std::vector<RowVectorPtr> generateInputData(
@@ -423,7 +423,7 @@ std::tuple<std::vector<std::string>, int> WriterFuzzer::generateSortColumns(
     int32_t maxNumColumns,
     std::vector<std::string>& names,
     std::vector<TypePtr>& types,
-    std::vector<std::string>& bucketColumns) {
+    const std::vector<std::string>& bucketColumns) {
   // A random number of sort columns will overlap as bucket columns, which are
   // already generated
   const auto maxOverlapColumns =
