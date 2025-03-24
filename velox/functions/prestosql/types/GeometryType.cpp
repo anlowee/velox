@@ -13,10 +13,110 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "velox/functions/prestosql/types/GeometryType.h"
 
+#ifdef VELOX_ENABLE_GEO
+#include <geos/io/WKTReader.h>
+#include <geos/io/WKTWriter.h>
+
+#include "velox/functions/prestosql/GeometryUtils.h"
+#endif
+
 namespace facebook::velox {
+
+#ifdef VELOX_ENABLE_GEO
+class GeometryCastOperator : public exec::CastOperator {
+ public:
+  // We do not support casting to Geometry from VARBINARY because in the Java
+  // implementation, we use a custom format instead of WKB.
+  bool isSupportedFromType(const TypePtr& other) const override {
+    switch (other->kind()) {
+      case TypeKind::VARCHAR:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool isSupportedToType(const TypePtr& other) const override {
+    switch (other->kind()) {
+      case TypeKind::VARCHAR:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  void castTo(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      const TypePtr& resultType,
+      VectorPtr& result) const override {
+    context.ensureWritable(rows, resultType, result);
+
+    if (input.typeKind() == TypeKind::VARCHAR) {
+      castFromString(input, context, rows, *result);
+    } else {
+      VELOX_UNSUPPORTED(
+          "Cast from {} to Geometry not supported", resultType->toString());
+    }
+  }
+
+  void castFrom(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      const TypePtr& resultType,
+      VectorPtr& result) const override {
+    context.ensureWritable(rows, resultType, result);
+
+    if (resultType->kind() == TypeKind::VARCHAR) {
+      castToString(input, context, rows, *result);
+    } else {
+      VELOX_UNSUPPORTED(
+          "Cast from Geometry to {} not supported", resultType->toString());
+    }
+  }
+
+ private:
+  static void castToString(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      BaseVector& result) {
+    auto* flatResult = result.as<FlatVector<StringView>>();
+    const auto* geometries = input.as<SimpleVector<StringView>>();
+    thread_local geos::io::WKTWriter writer;
+
+    context.applyToSelectedNoThrow(rows, [&](auto row) {
+      const auto geometry = geometries->valueAt(row);
+      auto geosGeometry = functions::GeometryUtils::deserialize(geometry);
+      exec::StringWriter<false> wktString(flatResult, row);
+      wktString.append(writer.write(geosGeometry.get()));
+      wktString.finalize();
+    });
+  }
+
+  static void castFromString(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      BaseVector& result) {
+    auto* flatResult = result.as<FlatVector<StringView>>();
+    const auto* geometryStrings = input.as<SimpleVector<StringView>>();
+    thread_local geos::io::WKTReader reader;
+
+    context.applyToSelectedNoThrow(rows, [&](auto row) {
+      const auto wktString = geometryStrings->valueAt(row);
+      auto geosGeometry = reader.read(wktString);
+      exec::StringWriter<> geometry(flatResult, row);
+      functions::GeometryUtils::serialize(geosGeometry, geometry);
+      geometry.finalize();
+    });
+  }
+};
+#endif
 
 namespace {
 class GeometryTypeFactories : public CustomTypeFactories {
@@ -26,7 +126,11 @@ class GeometryTypeFactories : public CustomTypeFactories {
   }
 
   exec::CastOperatorPtr getCastOperator() const override {
+#ifdef VELOX_ENABLE_GEO
+    return std::make_shared<GeometryCastOperator>();
+#else
     return nullptr;
+#endif
   }
 
   AbstractInputGeneratorPtr getInputGenerator(

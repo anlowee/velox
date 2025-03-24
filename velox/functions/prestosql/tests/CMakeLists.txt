@@ -60,6 +60,7 @@ add_executable(
   FailTest.cpp
   FindFirstTest.cpp
   FromUtf8Test.cpp
+  GeometryCastTest.cpp
   GeometryFunctionsTest.cpp
   GreatestLeastTest.cpp
   HyperLogLogCastTest.cpp

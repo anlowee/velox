@@ -31,6 +31,10 @@ velox_link_libraries(
   velox_functions_lib_date_time_formatter
   velox_constrained_input_generators)
 
+if(VELOX_ENABLE_GEO)
+  velox_link_libraries(velox_presto_types GEOS::geos)
+endif()
+
 if(${VELOX_BUILD_TESTING})
   add_subdirectory(tests)
 endif()
