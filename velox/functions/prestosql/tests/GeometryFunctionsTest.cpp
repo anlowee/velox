@@ -169,4 +169,117 @@ TEST_F(GeometryFunctionsTest, wktAndWkb) {
       "shell is empty but holes are not");
 }
 
+TEST_F(GeometryFunctionsTest, stPoint) {
+  const auto stPoint = [&](const std::optional<double>& a,
+                           const std::optional<double>& b) {
+    return evaluateOnce<std::string>(
+        "ST_AsText(ST_Point(c0, c1))", a, b);
+  };
+  EXPECT_EQ(stPoint(3, 5), "POINT (3 5)");
+  EXPECT_EQ(stPoint(0, 0), "POINT (0 0)");
+  EXPECT_EQ(stPoint(-3, -7), "POINT (-3 -7)");
+  EXPECT_EQ(stPoint(1.5, 2.25), "POINT (1.5 2.25)");
+  EXPECT_EQ(stPoint(-1000.123, 5000.987), "POINT (-1000.123 5000.987)");
+  EXPECT_EQ(stPoint(123456.789, -987654.321), "POINT (123456.789 -987654.321)");
+
+  EXPECT_EQ(stPoint(1, std::nullopt), std::nullopt);
+  EXPECT_EQ(stPoint(std::nullopt, 1), std::nullopt);
+  EXPECT_EQ(stPoint(std::nullopt, std::nullopt), std::nullopt);
+}
+
+TEST_F(GeometryFunctionsTest, stContains) {
+  const auto stContains = [&](const std::optional<std::string>& a,
+                              const std::optional<std::string>& b) {
+    return evaluateOnce<bool>(
+        "ST_Contains(ST_GeometryFromText(c0), ST_GeometryFromText(c1))", a, b);
+  };
+
+  // Point inside polygon
+  EXPECT_EQ(
+      stContains("POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))", "POINT(5 5)"), true);
+
+  // Point on polygon edge
+  EXPECT_EQ(
+      stContains("POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))", "POINT(0 5)"),
+      false);
+
+  // LineString fully inside polygon
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))", "LINESTRING(2 2, 8 8)"),
+      true);
+
+  // LineString partially outside polygon
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))", "LINESTRING(2 2, 12 12)"),
+      false);
+
+  // Polygon fully inside another polygon
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))",
+          "POLYGON((2 2, 2 8, 8 8, 8 2, 2 2))"),
+      true);
+
+  // Polygon touching boundary
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))",
+          "POLYGON((10 0, 10 2, 12 2, 12 0, 10 0))"),
+      false);
+
+  // Point in multipolygon
+  EXPECT_EQ(
+      stContains(
+          "MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0)), ((20 20, 20 30, 30 30, 30 20, 20 20)))",
+          "POINT(25 25)"),
+      true);
+
+  // GeometryCollection
+  EXPECT_EQ(
+      stContains(
+          "GEOMETRYCOLLECTION(POINT(1 1), LINESTRING(0 0, 2 2))", "POINT(1 1)"),
+      true);
+
+  // MultiPoint fully inside
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))",
+          "MULTIPOINT((1 1), (2 2), (3 3))"),
+      true);
+
+  // MultiPoint partially outside
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))",
+          "MULTIPOINT((1 1), (2 2), (6 6))"),
+      false);
+
+  // Polygon with hole (point in hole)
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 7, 7 7, 7 3, 3 3))",
+          "POINT(5 5)"),
+      false);
+
+  // Polygon with hole (point in outer ring)
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 7, 7 7, 7 3, 3 3))",
+          "POINT(1 1)"),
+      true);
+
+  // Point on polygon vertex
+  EXPECT_EQ(
+      stContains("POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))", "POINT(0 0)"), false);
+
+  // Large coordinates
+  EXPECT_EQ(
+      stContains(
+          "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))",
+          "POINT(1500000 1500000)"),
+      true);
+}
+
 #endif

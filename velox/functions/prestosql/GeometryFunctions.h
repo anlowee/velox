@@ -89,4 +89,29 @@ struct StAsBinaryFunction {
   }
 };
 
+template <typename T>
+struct StContainsFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void call(
+      bool& result,
+      const arg_type<Geometry>& left,
+      const arg_type<Geometry>& right) {
+    auto leftGeometry = GeometryUtils::deserialize(left);
+    auto rightGeometry = GeometryUtils::deserialize(right);
+    result = leftGeometry->contains(rightGeometry.get());
+  }
+};
+
+template <typename T>
+struct StPointFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void
+  call(out_type<Geometry>& result, double x, double y) {
+    auto geometry = GeometryUtils::createPoint(x, y);
+    GeometryUtils::serialize(geometry, result);
+  }
+};
+
 } // namespace facebook::velox::functions

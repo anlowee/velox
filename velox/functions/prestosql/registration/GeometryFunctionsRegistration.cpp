@@ -1,5 +1,5 @@
 /*
-* Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,12 @@ void registerGeometryFunctions(const std::string& prefix) {
 
   registerFunction<StAsBinaryFunction, Varbinary, Geometry>(
       {{prefix + "ST_AsBinary"}});
+
+  registerFunction<StContainsFunction, bool, Geometry, Geometry>(
+      {prefix + "ST_Contains"});
+
+  registerFunction<StPointFunction, Geometry, double, double>(
+      {{prefix + "ST_Point"}});
 #endif
 }
 
