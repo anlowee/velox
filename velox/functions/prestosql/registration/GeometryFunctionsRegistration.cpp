@@ -26,22 +26,36 @@ void registerGeometryFunctions(const std::string& prefix) {
   registerGeometryType();
 
   registerFunction<StGeometryFromTextFunction, Geometry, Varchar>(
-      {{prefix + "ST_GeometryFromText"}});
+      {prefix + "ST_GeometryFromText", prefix + "st_geometry_from_text"});
 
   registerFunction<StGeomFromBinaryFunction, Geometry, Varbinary>(
-      {{prefix + "ST_GeomFromBinary"}});
+      {prefix + "ST_GeomFromBinary"});
 
-  registerFunction<StAsTextFunction, Varchar, Geometry>(
-      {{prefix + "ST_AsText"}});
+  registerFunction<StAsTextFunction, Varchar, Geometry>({prefix + "ST_AsText"});
 
   registerFunction<StAsBinaryFunction, Varbinary, Geometry>(
-      {{prefix + "ST_AsBinary"}});
+      {prefix + "ST_AsBinary"});
 
   registerFunction<StContainsFunction, bool, Geometry, Geometry>(
       {prefix + "ST_Contains"});
 
+  registerFunction<StWithinFunction, bool, Geometry, Geometry>(
+      {prefix + "ST_Within"});
+
+  registerFunction<StDistanceFunction, double, Geometry, Geometry>(
+      {prefix + "ST_Distance"});
+
+  registerFunction<StIntersectsFunction, bool, Geometry, Geometry>(
+      {prefix + "ST_Intersects"});
+
+  registerFunction<StCentroidFunction, Geometry, Geometry>(
+      {prefix + "St_Centroid"});
+
+  registerFunction<StPolygonFunction, Geometry, Varchar>(
+      {prefix + "ST_Polygon"});
+
   registerFunction<StPointFunction, Geometry, double, double>(
-      {{prefix + "ST_Point"}});
+      {prefix + "ST_Point"});
 #endif
 }
 

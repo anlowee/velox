@@ -172,8 +172,7 @@ TEST_F(GeometryFunctionsTest, wktAndWkb) {
 TEST_F(GeometryFunctionsTest, stPoint) {
   const auto stPoint = [&](const std::optional<double>& a,
                            const std::optional<double>& b) {
-    return evaluateOnce<std::string>(
-        "ST_AsText(ST_Point(c0, c1))", a, b);
+    return evaluateOnce<std::string>("ST_AsText(ST_Point(c0, c1))", a, b);
   };
   EXPECT_EQ(stPoint(3, 5), "POINT (3 5)");
   EXPECT_EQ(stPoint(0, 0), "POINT (0 0)");
@@ -277,6 +276,438 @@ TEST_F(GeometryFunctionsTest, stContains) {
   // Large coordinates
   EXPECT_EQ(
       stContains(
+          "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))",
+          "POINT(1500000 1500000)"),
+      true);
+}
+
+TEST_F(GeometryFunctionsTest, stWithin) {
+  const auto stWithin = [&](const std::optional<std::string>& a,
+                            const std::optional<std::string>& b) {
+    return evaluateOnce<bool>(
+        "ST_Within(ST_GeometryFromText(c0), ST_GeometryFromText(c1))", a, b);
+  };
+
+  // Point inside polygon
+  EXPECT_EQ(stWithin("POINT(1 1)", "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))"), true);
+
+  // Point on boundary
+  EXPECT_EQ(
+      stWithin("POINT(0 1)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"), false);
+
+  // Line inside polygon
+  EXPECT_EQ(
+      stWithin("LINESTRING(1 1, 2 2)", "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))"),
+      true);
+
+  // Line crossing polygon boundary
+  EXPECT_EQ(
+      stWithin("LINESTRING(1 1, 6 6)", "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0))"),
+      false);
+
+  // Polygon inside polygon
+  EXPECT_EQ(
+      stWithin(
+          "POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))",
+          "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))"),
+      true);
+
+  // Polygon touches outer polygon
+  EXPECT_EQ(
+      stWithin(
+          "POLYGON((2 2, 2 4, 4 4, 4 2, 2 2))",
+          "POLYGON((0 0, 0 4, 2 4, 2 0, 0 0))"),
+      false);
+
+  // Point in MultiPolygon
+  EXPECT_EQ(
+      stWithin(
+          "POINT(6 6)",
+          "MULTIPOLYGON(((0 0, 0 2, 2 2, 2 0, 0 0)), ((5 5, 5 7, 7 7, 7 5, 5 5)))"),
+      true);
+
+  // Point not in MultiPolygon
+  EXPECT_EQ(
+      stWithin(
+          "POINT(10 10)",
+          "MULTIPOLYGON(((0 0, 0 2, 2 2, 2 0, 0 0)), ((5 5, 5 7, 7 7, 7 5, 5 5)))"),
+      false);
+
+  // Polygon with hole - point in hole
+  EXPECT_EQ(
+      stWithin(
+          "POINT(4 4)",
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 5, 5 5, 5 3, 3 3))"),
+      false);
+
+  // Polygon with hole - point in outer ring
+  EXPECT_EQ(
+      stWithin(
+          "POINT(2 2)",
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 5, 5 5, 5 3, 3 3))"),
+      true);
+
+  // MultiPoint fully inside polygon
+  EXPECT_EQ(
+      stWithin(
+          "MULTIPOINT((1 1), (2 2))", "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))"),
+      true);
+
+  // MultiPoint partially outside
+  EXPECT_EQ(
+      stWithin(
+          "MULTIPOINT((1 1), (4 4))", "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))"),
+      false);
+
+  // Point in GeometryCollection
+  EXPECT_EQ(
+      stWithin(
+          "POINT(1 1)",
+          "GEOMETRYCOLLECTION(POLYGON((0 0, 0 2, 2 2, 2 0, 0 0)))"),
+      true);
+
+  // Complex nested polygons
+  EXPECT_TRUE(stWithin(
+      "POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))",
+      "POLYGON((1 1, 1 4, 4 4, 4 1, 1 1))"));
+
+  // Geometry equals container
+  EXPECT_EQ(
+      stWithin(
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))",
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))"),
+      true);
+
+  // Same point
+  EXPECT_EQ(stWithin("POINT(1 1)", "POINT(1 1)"), true);
+
+  // Large coordinates
+  EXPECT_EQ(
+      stWithin(
+          "POINT(1500000 1500000)",
+          "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))"),
+      true);
+}
+
+TEST_F(GeometryFunctionsTest, stDistance) {
+  const auto stDistance = [&](const std::optional<std::string>& a,
+                              const std::optional<std::string>& b) {
+    return evaluateOnce<double>(
+        "ST_Distance(ST_GeometryFromText(c0), ST_GeometryFromText(c1))", a, b);
+  };
+
+  // Distance between same point
+  EXPECT_DOUBLE_EQ(stDistance("POINT(0 0)", "POINT(0 0)").value(), 0.0);
+
+  // Horizontal distance
+  EXPECT_DOUBLE_EQ(stDistance("POINT(0 0)", "POINT(3 0)").value(), 3.0);
+
+  // Vertical distance
+  EXPECT_DOUBLE_EQ(stDistance("POINT(0 0)", "POINT(0 4)").value(), 4.0);
+
+  // Diagonal distance
+  EXPECT_DOUBLE_EQ(stDistance("POINT(0 0)", "POINT(3 4)").value(), 5.0);
+
+  // Point to LineString
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(0 0)", "LINESTRING(1 0, 1 2)").value(), 1.0);
+
+  // Point to Polygon (inside)
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(1 1)", "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))").value(),
+      0.0);
+
+  // Point to Polygon (outside)
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(5 5)", "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))").value(),
+      std::sqrt(8.0));
+
+  // Polygon with hole — point in hole
+  EXPECT_DOUBLE_EQ(
+      stDistance(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 7, 7 7, 7 3, 3 3))",
+          "POINT(5 5)")
+          .value(),
+      2.0);
+
+  // Point to MultiPoint
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(1 1)", "MULTIPOINT((2 2), (3 3))").value(),
+      std::sqrt(2.0));
+
+  // Point to MultiLineString
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(0 0)", "MULTILINESTRING((1 0, 1 2), (5 5, 6 6))")
+          .value(),
+      1.0);
+
+  // LineString to LineString
+  EXPECT_DOUBLE_EQ(
+      stDistance("LINESTRING(0 0, 1 1)", "LINESTRING(2 2, 3 3)").value(),
+      std::sqrt(2.0));
+
+  // Polygon to Polygon (overlapping)
+  EXPECT_DOUBLE_EQ(
+      stDistance(
+          "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))",
+          "POLYGON((2 2, 2 5, 5 5, 5 2, 2 2))")
+          .value(),
+      0.0);
+
+  // Polygon to Polygon (apart)
+  EXPECT_DOUBLE_EQ(
+      stDistance(
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))",
+          "POLYGON((3 3, 3 4, 4 4, 4 3, 3 3))")
+          .value(),
+      std::sqrt(8.0));
+
+  // Point to GeometryCollection
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(0 0)", "GEOMETRYCOLLECTION(POINT(5 0))").value(), 5.0);
+
+  // Large geometry distance
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(0 0)", "LINESTRING(1000000 1000000, 2000000 2000000)")
+          .value(),
+      std::sqrt(2.0) * 1000000);
+
+  // Negative coordinate geometries
+  EXPECT_DOUBLE_EQ(
+      stDistance("POINT(-1 -1)", "POINT(-4 -5)").value(), std::sqrt(25.0));
+}
+
+TEST_F(GeometryFunctionsTest, stCentroid) {
+  const auto stCentroid = [&](const std::optional<std::string>& a) {
+    return evaluateOnce<std::string>(
+        "ST_AsText(ST_Centroid(ST_GeometryFromText(c0)))", a);
+  };
+
+  // Centroid of a square
+  EXPECT_EQ(stCentroid("POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"), "POINT (1 1)");
+
+  // LineString centroid
+  EXPECT_EQ(stCentroid("LINESTRING(0 0, 2 0)"), "POINT (1 0)");
+
+  // Point centroid
+  EXPECT_EQ(stCentroid("POINT(1 2)"), "POINT (1 2)");
+
+  // MultiPoint centroid
+  EXPECT_EQ(stCentroid("MULTIPOINT((1 1), (3 3))"), "POINT (2 2)");
+
+  // MultiLineString centroid
+  EXPECT_EQ(
+      stCentroid("MULTILINESTRING((0 0, 2 0), (2 0, 2 2))"), "POINT (1.5 0.5)");
+
+  // Polygon with hole (should ignore hole for centroid)
+  EXPECT_EQ(
+      stCentroid(
+          "POLYGON((0 0, 0 6, 6 6, 6 0, 0 0), (2 2, 2 4, 4 4, 4 2, 2 2))"),
+      "POINT (3 3)");
+
+  // Negative coordinates
+  EXPECT_EQ(
+      stCentroid("POLYGON((-4 -4, -4 -2, -2 -2, -2 -4, -4 -4))"),
+      "POINT (-3 -3)");
+
+  // GeometryCollection
+  EXPECT_EQ(
+      stCentroid("GEOMETRYCOLLECTION(POINT(0 0), POINT(2 2))"), "POINT (1 1)");
+
+  // Centroid of L-shape polygon
+  EXPECT_EQ(
+      stCentroid("POLYGON((0 0, 0 3, 1 3, 1 1, 3 1, 3 0, 0 0))"),
+      "POINT (1.1 1.1)");
+
+  // Tiny polygon
+  EXPECT_EQ(
+      stCentroid("POLYGON((0 0, 0 0.001, 0.001 0.001, 0.001 0, 0 0))"),
+      "POINT (0.0005 0.0005)");
+
+  // Large polygon
+  EXPECT_EQ(
+      stCentroid(
+          "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))"),
+      "POINT (1500000 1500000)");
+}
+
+TEST_F(GeometryFunctionsTest, stPolygon) {
+  const auto stPolygon = [&](const std::optional<std::string>& wkt) {
+    return evaluateOnce<std::string>("ST_AsText(ST_Polygon(c0))", wkt);
+  };
+
+  // Simple square
+  EXPECT_EQ(
+      stPolygon("POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"),
+      "POLYGON ((0 0, 0 2, 2 2, 2 0, 0 0))");
+
+  // Rectangle
+  EXPECT_EQ(
+      stPolygon("POLYGON((10 10, 10 20, 30 20, 30 10, 10 10))"),
+      "POLYGON ((10 10, 10 20, 30 20, 30 10, 10 10))");
+
+  // Triangle
+  EXPECT_EQ(
+      stPolygon("POLYGON((0 0, 0 3, 3 0, 0 0))"),
+      "POLYGON ((0 0, 0 3, 3 0, 0 0))");
+
+  // Thin rectangle
+  EXPECT_EQ(
+      stPolygon("POLYGON((0 0, 0 1, 10 1, 10 0, 0 0))"),
+      "POLYGON ((0 0, 0 1, 10 1, 10 0, 0 0))");
+
+  // Square with a hole
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((0 0, 0 6, 6 6, 6 0, 0 0), (2 2, 2 4, 4 4, 4 2, 2 2))"),
+      "POLYGON ((0 0, 0 6, 6 6, 6 0, 0 0), (2 2, 4 2, 4 4, 2 4, 2 2))");
+
+  // L-shaped polygon
+  EXPECT_EQ(
+      stPolygon("POLYGON((0 0, 0 4, 2 4, 2 2, 4 2, 4 0, 0 0))"),
+      "POLYGON ((0 0, 0 4, 2 4, 2 2, 4 2, 4 0, 0 0))");
+
+  // Hole touches outer ring
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0), (0 0, 0 1, 1 1, 1 0, 0 0))"),
+      "POLYGON ((0 0, 0 5, 5 5, 5 0, 0 0), (0 0, 1 0, 1 1, 0 1, 0 0))");
+
+  // Reversed inner ring (counter-clockwise hole)
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((0 0, 0 5, 5 5, 5 0, 0 0), (4 4, 1 4, 1 1, 4 1, 4 4))"),
+      "POLYGON ((0 0, 0 5, 5 5, 5 0, 0 0), (4 4, 1 4, 1 1, 4 1, 4 4))");
+
+  // Large coordinate values
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))"),
+      "POLYGON ((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))");
+
+  // Two holes
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (2 2, 2 4, 4 4, 4 2, 2 2), (6 6, 6 8, 8 8, 8 6, 6 6))"),
+      "POLYGON ((0 0, 0 10, 10 10, 10 0, 0 0), (2 2, 4 2, 4 4, 2 4, 2 2), (6 6, 8 6, 8 8, 6 8, 6 6))");
+
+  // Repeated vertices
+  EXPECT_EQ(
+      stPolygon(
+          "POLYGON((0 0, 0 0, 0 2, 2 2, 2 0, 0 0), (0.5 0.5, 1.5 0.5, 1.5 1.5, 0.5 1.5, 0.5 0.5, 0.5 0.5))"),
+      "POLYGON ((0 0, 0 0, 0 2, 2 2, 2 0, 0 0), (0.5 0.5, 1.5 0.5, 1.5 1.5, 0.5 1.5, 0.5 0.5, 0.5 0.5))");
+
+  // Polygon with negative coordinates
+  EXPECT_EQ(
+      stPolygon("POLYGON((-5 -5, -5 0, 0 0, 0 -5, -5 -5))"),
+      "POLYGON ((-5 -5, -5 0, 0 0, 0 -5, -5 -5))");
+
+  // Empty polygon
+  EXPECT_EQ(stPolygon("POLYGON EMPTY"), "POLYGON EMPTY");
+
+  // Not a polygon
+  VELOX_ASSERT_USER_THROW(
+      stPolygon("LINESTRING(0 0, 1 1)"), "input is not a polygon");
+}
+
+TEST_F(GeometryFunctionsTest, stIntersects) {
+  const auto stIntersects = [&](const std::optional<std::string>& a,
+                                const std::optional<std::string>& b) {
+    return evaluateOnce<bool>(
+        "ST_Intersects(ST_GeometryFromText(c0), ST_GeometryFromText(c1))",
+        a,
+        b);
+  };
+
+  // Point inside polygon
+  EXPECT_EQ(
+      stIntersects("POINT(1 1)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"), true);
+
+  // Point outside polygon
+  EXPECT_EQ(
+      stIntersects("POINT(3 3)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"), false);
+
+  // Point on polygon edge
+  EXPECT_EQ(
+      stIntersects("POINT(0 1)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"), true);
+
+  // Overlapping polygons
+  EXPECT_EQ(
+      stIntersects(
+          "POLYGON((0 0, 0 3, 3 3, 3 0, 0 0))",
+          "POLYGON((2 2, 2 4, 4 4, 4 2, 2 2))"),
+      true);
+
+  // Disjoint polygons
+  EXPECT_EQ(
+      stIntersects(
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))",
+          "POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))"),
+      false);
+
+  // Line crossing polygon
+  EXPECT_EQ(
+      stIntersects(
+          "LINESTRING(-1 1, 3 1)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"),
+      true);
+
+  // Line completely inside polygon
+  EXPECT_EQ(
+      stIntersects(
+          "LINESTRING(1 1, 1.5 1.5)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"),
+      true);
+
+  // Line completely outside
+  EXPECT_EQ(
+      stIntersects(
+          "LINESTRING(3 3, 4 4)", "POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))"),
+      false);
+
+  // Polygon and its hole
+  EXPECT_EQ(
+      stIntersects(
+          "POLYGON((3 3, 3 5, 5 5, 5 3, 3 3))",
+          "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 3 5, 5 5, 5 3, 3 3))"),
+      true);
+
+  // Touching at a point
+  EXPECT_EQ(
+      stIntersects(
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))",
+          "POLYGON((1 1, 2 1, 2 2, 1 2, 1 1))"),
+      true);
+
+  // Touching along an edge
+  EXPECT_EQ(
+      stIntersects(
+          "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))",
+          "POLYGON((1 0, 1 1, 2 1, 2 0, 1 0))"),
+      true);
+
+  // Point in multipoint
+  EXPECT_EQ(stIntersects("POINT(1 1)", "MULTIPOINT((1 1), (2 2))"), true);
+
+  // MultiLineString overlapping
+  EXPECT_EQ(
+      stIntersects("MULTILINESTRING((0 0, 2 0))", "LINESTRING(1 0, 1 2)"),
+      true);
+
+  // MultiPolygon intersection
+  EXPECT_EQ(
+      stIntersects(
+          "MULTIPOLYGON(((0 0, 0 2, 2 2, 2 0, 0 0)), ((3 3, 3 5, 5 5, 5 3, 3 3)))",
+          "POLYGON((1 1, 1 4, 4 4, 4 1, 1 1))"),
+      true);
+
+  // GeometryCollection intersecting
+  EXPECT_EQ(
+      stIntersects(
+          "GEOMETRYCOLLECTION(POINT(0 0), LINESTRING(1 1, 2 2))", "POINT(1 1)"),
+      true);
+
+  // Large coordinates intersection
+  EXPECT_EQ(
+      stIntersects(
           "POLYGON((1000000 1000000, 1000000 2000000, 2000000 2000000, 2000000 1000000, 1000000 1000000))",
           "POINT(1500000 1500000)"),
       true);

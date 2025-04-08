@@ -104,6 +104,76 @@ struct StContainsFunction {
 };
 
 template <typename T>
+struct StWithinFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void call(
+      bool& result,
+      const arg_type<Geometry>& left,
+      const arg_type<Geometry>& right) {
+    auto leftGeometry = GeometryUtils::deserialize(left);
+    auto rightGeometry = GeometryUtils::deserialize(right);
+    result = leftGeometry->within(rightGeometry.get());
+  }
+};
+
+template <typename T>
+struct StDistanceFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void call(
+      double& result,
+      const arg_type<Geometry>& left,
+      const arg_type<Geometry>& right) {
+    auto leftGeometry = GeometryUtils::deserialize(left);
+    auto rightGeometry = GeometryUtils::deserialize(right);
+    result = leftGeometry->distance(rightGeometry.get());
+  }
+};
+
+template <typename T>
+struct StIntersectsFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void call(
+      bool& result,
+      const arg_type<Geometry>& left,
+      const arg_type<Geometry>& right) {
+    auto leftGeometry = GeometryUtils::deserialize(left);
+    auto rightGeometry = GeometryUtils::deserialize(right);
+    result = leftGeometry->intersects(rightGeometry.get());
+  }
+};
+
+template <typename T>
+struct StCentroidFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE bool call(
+      out_type<Geometry>& result,
+      const arg_type<Geometry>& geometry) {
+    auto geosGeometry = GeometryUtils::deserialize(geometry);
+    auto geosGeometryType = geosGeometry->getGeometryType();
+    if (geosGeometryType == geos::geom::GEOS_GEOMETRYCOLLECTION) {
+      VELOX_USER_FAIL("StCentroidFunction: input is a geometry collection");
+      return false;
+    }
+    if (geosGeometryType == geos::geom::GEOS_POINT) {
+      result = geometry;
+      return true;
+    }
+
+    if (geosGeometry->getNumPoints() == 0) {
+      GeometryUtils::serialize(GeometryUtils::createPoint(), result);
+      return true;
+    }
+
+    GeometryUtils::serialize(geosGeometry->getCentroid(), result);
+    return true;
+  }
+};
+
+template <typename T>
 struct StPointFunction {
   VELOX_DEFINE_FUNCTION_TYPES(T);
 
@@ -111,6 +181,24 @@ struct StPointFunction {
   call(out_type<Geometry>& result, double x, double y) {
     auto geometry = GeometryUtils::createPoint(x, y);
     GeometryUtils::serialize(geometry, result);
+  }
+};
+
+template <typename T>
+struct StPolygonFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE bool call(
+      out_type<Geometry>& result,
+      const arg_type<Varchar>& wkt) {
+    thread_local geos::io::WKTReader reader;
+    auto geosGeometry = reader.read(wkt);
+    if (geosGeometry->getGeometryType() != "Polygon") {
+      VELOX_USER_FAIL("StPolygonFunction: input is not a polygon");
+      return false;
+    }
+    GeometryUtils::serialize(geosGeometry, result);
+    return true;
   }
 };
 

@@ -41,6 +41,11 @@ class GeometryUtils {
     return deserialize(sliceInput);
   }
 
+  static std::unique_ptr<geos::geom::Geometry> createPoint() {
+    return std::unique_ptr<geos::geom::Point>(
+        GEOMETRY_FACTORY->createPoint());
+  }
+
   static std::unique_ptr<geos::geom::Geometry> createPoint(double x, double y) {
     geos::geom::Coordinate coord(x, y);
     return std::unique_ptr<geos::geom::Point>(
