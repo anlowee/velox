@@ -37,6 +37,7 @@ extern void registerURLFunctions(const std::string& prefix);
 extern void registerMapAllowingDuplicates(
     const std::string& name,
     const std::string& prefix);
+extern void registerGeometryFunctions(const std::string& prefix);
 extern void registerInternalArrayFunctions();
 
 namespace prestosql {
@@ -68,6 +69,10 @@ void registerJsonFunctions(const std::string& prefix) {
 
 void registerHyperLogFunctions(const std::string& prefix) {
   functions::registerHyperLogFunctions(prefix);
+}
+
+void registerGeometryFunctions(const std::string& prefix) {
+  functions::registerGeometryFunctions(prefix);
 }
 
 void registerGeneralFunctions(const std::string& prefix) {
@@ -103,6 +108,7 @@ void registerAllScalarFunctions(const std::string& prefix) {
   registerJsonFunctions(prefix);
   registerHyperLogFunctions(prefix);
   registerGeneralFunctions(prefix);
+  registerGeometryFunctions(prefix);
   registerDateTimeFunctions(prefix);
   registerURLFunctions(prefix);
   registerStringFunctions(prefix);

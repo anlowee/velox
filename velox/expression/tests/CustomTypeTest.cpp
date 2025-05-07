@@ -228,7 +228,7 @@ TEST_F(CustomTypeTest, getCustomTypeNames) {
           "UUID",
           "IPADDRESS",
           "IPPREFIX",
-      }),
+          "GEOMETRY"}),
       names);
 
   ASSERT_TRUE(registerCustomType(
@@ -244,7 +244,7 @@ TEST_F(CustomTypeTest, getCustomTypeNames) {
           "IPADDRESS",
           "IPPREFIX",
           "FANCY_INT",
-      }),
+          "GEOMETRY"}),
       names);
 
   ASSERT_TRUE(unregisterCustomType("fancy_int"));
