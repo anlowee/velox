@@ -28,6 +28,7 @@ extern void registerCheckedArithmeticFunctions(const std::string& prefix);
 extern void registerComparisonFunctions(const std::string& prefix);
 extern void registerDateTimeFunctions(const std::string& prefix);
 extern void registerGeneralFunctions(const std::string& prefix);
+extern void registerH3Functions(const std::string& prefix);
 extern void registerHyperLogFunctions(const std::string& prefix);
 extern void registerTDigestFunctions(const std::string& prefix);
 extern void registerIntegerFunctions(const std::string& prefix);
@@ -100,6 +101,10 @@ void registerGeneralFunctions(const std::string& prefix) {
   functions::registerGeneralFunctions(prefix);
 }
 
+void registerH3Functions(const std::string& prefix) {
+  functions::registerH3Functions(prefix);
+}
+
 void registerDateTimeFunctions(const std::string& prefix) {
   functions::registerDateTimeFunctions(prefix);
 }
@@ -134,6 +139,7 @@ void registerAllScalarFunctions(const std::string& prefix) {
   registerBingTileFunctions(prefix);
   registerGeometryFunctions(prefix);
   registerGeneralFunctions(prefix);
+  registerH3Functions(prefix);
   registerDateTimeFunctions(prefix);
   registerURLFunctions(prefix);
   registerStringFunctions(prefix);

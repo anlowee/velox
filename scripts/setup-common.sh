@@ -357,3 +357,8 @@ function install_hdfs_deps {
   cp -a ${DEPENDENCY_DIR}/hadoop /usr/local/
   wget ${WGET_OPTIONS} -P /usr/local/hadoop/share/hadoop/common/lib/ https://repo1.maven.org/maven2/junit/junit/4.11/junit-4.11.jar
 }
+
+function install_uber_h3 {
+  wget_and_untar https://github.com/uber/h3/archive/refs/tags/${UBER_H3_VERSION}.tar.gz h3
+  cmake_install_dir h3 -DCMAKE_BUILD_TYPE=Release
+}
