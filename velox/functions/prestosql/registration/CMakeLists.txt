@@ -26,7 +26,6 @@ velox_add_library(
   DataSizeFunctionsRegistration.cpp
   GeneralFunctionsRegistration.cpp
   GeometryFunctionsRegistration.cpp
-  H3FunctionsRegistration.cpp
   HyperLogFunctionsRegistration.cpp
   IntegerFunctionsRegistration.cpp
   FloatingPointFunctionsRegistration.cpp
