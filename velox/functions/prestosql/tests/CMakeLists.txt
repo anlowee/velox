@@ -65,6 +65,7 @@ add_executable(
   FromUtf8Test.cpp
   GeometryFunctionsTest.cpp
   GreatestLeastTest.cpp
+  H3FunctionsTest.cpp
   HyperLogLogCastTest.cpp
   HyperLogLogFunctionsTest.cpp
   InPredicateTest.cpp
