@@ -15,9 +15,7 @@
  */
 
 #include <cmath>
-#include <limits>
 #include <optional>
-#include "velox/common/base/tests/GTestUtils.h"
 #include "velox/functions/prestosql/tests/utils/FunctionBaseTest.h"
 
 using facebook::velox::functions::test::FunctionBaseTest;
@@ -27,10 +25,13 @@ class H3FunctionsTest : public FunctionBaseTest {
 };
 
 TEST_F(H3FunctionsTest, getHexagonAddr) {
-  const auto hexagonAddr = [&](const double lat, const double lng, const int64_t res) {
+  const auto hexagonAddr = [&](double lat, double lng, int64_t res) {
     return evaluateOnce<std::string>(
-        "get_hexagon_addr(c0, c1, c2)", lat, lng, res);
+        "get_hexagon_addr(c0, c1, c2)",
+        std::optional<double>(lat),
+        std::optional<double>(lng),
+        std::optional<int64_t>(res));
   };
 
-  std::cout << hexagonAddr(40.730610, -73.935242, 0) << std::endl;
+  std::cout << hexagonAddr(40.730610, -73.935242, 0).value() << std::endl;
 }
