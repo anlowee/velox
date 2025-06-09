@@ -16,8 +16,7 @@ name: Breeze Linux Build
 
 on:
   push:
-    branches:
-      - "main"
+    branches: [presto-0.293-clp-connector]
     paths:
       - "velox/experimental/breeze/**"
       - "velox/external/perfetto/**"
@@ -40,13 +39,11 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.sha }}
-  cancel-in-progress: true
+  cancel-in-progress: "${{github.ref != 'refs/heads/presto-0.293-clp-connector'}}"
 
 jobs:
   ubuntu-debug:
     runs-on: ubuntu-22.04
-    # prevent errors when forks ff their main branch
-    if: ${{ github.repository == 'facebookincubator/velox' }}
     name: "Ubuntu debug"
     defaults:
       run:
@@ -80,8 +77,6 @@ jobs:
 
   ubuntu-gpu-relwithdebinfo:
     runs-on: 4-core-ubuntu-gpu-t4
-    # prevent errors when forks ff their main branch
-    if: ${{ github.repository == 'facebookincubator/velox' }}
     name: "Ubuntu GPU debug"
     env:
       CUDA_VERSION: "12.2"

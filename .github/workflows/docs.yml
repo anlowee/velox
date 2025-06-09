@@ -25,18 +25,19 @@ on:
       - "velox/docs/**"
       - ".github/workflows/docs.yml"
 
+
 permissions:
   contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.sha }}
-  cancel-in-progress: true
+  cancel-in-progress: "${{github.ref != 'refs/heads/presto-0.293-clp-connector'}}"
 
 jobs:
   build_docs:
     name: Build and Push
     runs-on: 8-core-ubuntu
-    container: ghcr.io/facebookincubator/velox-dev:centos9
+    container: ghcr.io/y-scope/clp/velox-dev:centos9
     env:
       CCACHE_DIR: "/tmp/ccache"
     steps:
@@ -96,7 +97,7 @@ jobs:
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
 
       - name: Push Documentation
-        if: ${{ github.event_name == 'push' && github.repository == 'facebookincubator/velox'}}
+        if: ${{ github.event_name == 'push' && github.repository == 'anlowee/velox'}}
         run: |
           git checkout gh-pages
           cp -R velox/docs/_build/html/* docs
