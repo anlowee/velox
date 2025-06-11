@@ -23,9 +23,10 @@ using geos::operation::valid::IsValidOp;
 
 namespace facebook::velox::functions::geospatial {
 
-geos::geom::GeometryFactory* getGeometryFactory() {
-  thread_local static geos::geom::GeometryFactory::Ptr geometryFactory =
-      geos::geom::GeometryFactory::create();
+geos::geom::GeometryFactory* getGeometryFactory(int SRID) {
+  auto precisionModel = std::make_unique<geos::geom::PrecisionModel>(geos::geom::PrecisionModel::FLOATING);
+  thread_local static geos::geom::GeometryFactory::Ptr geometryFactory
+    = geos::geom::GeometryFactory::create(precisionModel.get(), SRID);
   return geometryFactory.get();
 }
 

@@ -27,26 +27,27 @@ using facebook::velox::common::InputByteStream;
 namespace facebook::velox::functions::geospatial {
 std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::deserialize(
     velox::common::InputByteStream& stream,
-    size_t size) {
+    size_t size,
+    int SRID) {
   auto geometryType = static_cast<GeometrySerializationType>(
       stream.read<GeometrySerializationType>());
   switch (geometryType) {
     case GeometrySerializationType::POINT:
-      return readPoint(stream);
+      return readPoint(stream, SRID);
     case GeometrySerializationType::MULTI_POINT:
-      return readMultiPoint(stream);
+      return readMultiPoint(stream, SRID);
     case GeometrySerializationType::LINE_STRING:
-      return readPolyline(stream, false);
+      return readPolyline(stream, false, SRID);
     case GeometrySerializationType::MULTI_LINE_STRING:
-      return readPolyline(stream, true);
+      return readPolyline(stream, true, SRID);
     case GeometrySerializationType::POLYGON:
-      return readPolygon(stream, false);
+      return readPolygon(stream, false, SRID);
     case GeometrySerializationType::MULTI_POLYGON:
-      return readPolygon(stream, true);
+      return readPolygon(stream, true, SRID);
     case GeometrySerializationType::ENVELOPE:
-      return readEnvelope(stream);
+      return readEnvelope(stream, SRID);
     case GeometrySerializationType::GEOMETRY_COLLECTION:
-      return readGeometryCollection(stream, size);
+      return readGeometryCollection(stream, size, SRID);
     default:
       VELOX_FAIL(
           "Unrecognized geometry type: {}", static_cast<uint8_t>(geometryType));
@@ -73,17 +74,17 @@ GeometryDeserializer::readCoordinates(
 }
 
 std::unique_ptr<geos::geom::Point> GeometryDeserializer::readPoint(
-    velox::common::InputByteStream& input) {
+    velox::common::InputByteStream& input, int SRID) {
   geos::geom::Coordinate coordinate = readCoordinate(input);
   if (std::isnan(coordinate.x) || std::isnan(coordinate.y)) {
-    return getGeometryFactory()->createPoint();
+    return getGeometryFactory(SRID)->createPoint();
   }
   return std::unique_ptr<geos::geom::Point>(
-      getGeometryFactory()->createPoint(coordinate));
+      getGeometryFactory(SRID)->createPoint(coordinate));
 }
 
 std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readMultiPoint(
-    velox::common::InputByteStream& input) {
+    velox::common::InputByteStream& input, int SRID) {
   skipEsriType(input);
   skipEnvelope(input);
   int pointCount = input.read<int>();
@@ -91,24 +92,25 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readMultiPoint(
   std::vector<std::unique_ptr<geos::geom::Point>> points;
   for (size_t i = 0; i < coords->size(); ++i) {
     points.push_back(
-        std::unique_ptr<geos::geom::Point>(getGeometryFactory()->createPoint(
+        std::unique_ptr<geos::geom::Point>(getGeometryFactory(SRID)->createPoint(
             geos::geom::Coordinate(coords->getX(i), coords->getY(i)))));
   }
-  return getGeometryFactory()->createMultiPoint(std::move(points));
+  return getGeometryFactory(SRID)->createMultiPoint(std::move(points));
 }
 
 std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolyline(
     velox::common::InputByteStream& input,
-    bool multiType) {
+    bool multiType,
+    int SRID) {
   skipEsriType(input);
   skipEnvelope(input);
   int partCount = input.read<int>();
 
   if (partCount == 0) {
     if (multiType) {
-      return getGeometryFactory()->createMultiLineString();
+      return getGeometryFactory(SRID)->createMultiLineString();
     }
-    return getGeometryFactory()->createLineString();
+    return getGeometryFactory(SRID)->createLineString();
   }
 
   int pointCount = input.read<int>();
@@ -130,12 +132,12 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolyline(
   std::vector<std::unique_ptr<geos::geom::LineString>> lineStrings;
   lineStrings.reserve(partCount);
   for (int i = 0; i < partCount; ++i) {
-    lineStrings.push_back(getGeometryFactory()->createLineString(
+    lineStrings.push_back(getGeometryFactory(SRID)->createLineString(
         readCoordinates(input, partLengths[i])));
   }
 
   if (multiType) {
-    return getGeometryFactory()->createMultiLineString(std::move(lineStrings));
+    return getGeometryFactory(SRID)->createMultiLineString(std::move(lineStrings));
   }
 
   if (lineStrings.size() != 1) {
@@ -147,16 +149,17 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolyline(
 
 std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolygon(
     velox::common::InputByteStream& input,
-    bool multiType) {
+    bool multiType,
+    int SRID) {
   skipEsriType(input);
   skipEnvelope(input);
 
   int partCount = input.read<int>();
   if (partCount == 0) {
     if (multiType) {
-      return getGeometryFactory()->createMultiPolygon();
+      return getGeometryFactory(SRID)->createMultiPolygon();
     }
-    return getGeometryFactory()->createPolygon();
+    return getGeometryFactory(SRID)->createPolygon();
   }
 
   int pointCount = input.read<int>();
@@ -184,21 +187,21 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolygon(
     if (isClockwise(coordinates, 0, coordinates->size())) {
       // next polygon has started
       if (shell) {
-        polygons.push_back(getGeometryFactory()->createPolygon(
+        polygons.push_back(getGeometryFactory(SRID)->createPolygon(
             std::move(shell), std::move(holes)));
         holes.clear();
       }
-      shell = getGeometryFactory()->createLinearRing(std::move(coordinates));
+      shell = getGeometryFactory(SRID)->createLinearRing(std::move(coordinates));
     } else {
       holes.push_back(
-          getGeometryFactory()->createLinearRing(std::move(coordinates)));
+          getGeometryFactory(SRID)->createLinearRing(std::move(coordinates)));
     }
   }
   polygons.push_back(
-      getGeometryFactory()->createPolygon(std::move(shell), std::move(holes)));
+      getGeometryFactory(SRID)->createPolygon(std::move(shell), std::move(holes)));
 
   if (multiType) {
-    return getGeometryFactory()->createMultiPolygon(std::move(polygons));
+    return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
   }
 
   if (polygons.size() != 1) {
@@ -208,7 +211,8 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readPolygon(
 }
 
 std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readEnvelope(
-    velox::common::InputByteStream& input) {
+    velox::common::InputByteStream& input,
+    int SRID) {
   auto xMin = input.read<double>();
   auto yMin = input.read<double>();
   auto xMax = input.read<double>();
@@ -216,7 +220,7 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readEnvelope(
 
   if (isEsriNaN(xMin) || isEsriNaN(yMin) || isEsriNaN(xMax) ||
       isEsriNaN(yMax)) {
-    return getGeometryFactory()->createPolygon();
+    return getGeometryFactory(SRID)->createPolygon();
   }
 
   auto coordinates = std::make_unique<geos::geom::CoordinateArraySequence>();
@@ -226,21 +230,22 @@ std::unique_ptr<geos::geom::Geometry> GeometryDeserializer::readEnvelope(
   coordinates->add(geos::geom::Coordinate(xMax, yMin));
   coordinates->add(geos::geom::Coordinate(xMin, yMin)); // Close the ring
 
-  auto shell = getGeometryFactory()->createLinearRing(std::move(coordinates));
-  return getGeometryFactory()->createPolygon(std::move(shell), {});
+  auto shell = getGeometryFactory(SRID)->createLinearRing(std::move(coordinates));
+  return getGeometryFactory(SRID)->createPolygon(std::move(shell), {});
 }
 
 std::unique_ptr<geos::geom::Geometry>
 GeometryDeserializer::readGeometryCollection(
     velox::common::InputByteStream& input,
-    size_t size) {
+    size_t size,
+    int SRID) {
   std::vector<std::unique_ptr<geos::geom::Geometry>> geometries;
 
   auto offset = input.offset();
   while (size - offset > 0) {
     // Skip the length field
     input.read<int>();
-    geometries.push_back(deserialize(input, size));
+    geometries.push_back(deserialize(input, size, SRID));
     offset = input.offset();
   }
   std::vector<const geos::geom::Geometry*> rawGeometries;
@@ -249,7 +254,7 @@ GeometryDeserializer::readGeometryCollection(
   }
 
   return std::unique_ptr<geos::geom::GeometryCollection>(
-      getGeometryFactory()->createGeometryCollection(rawGeometries));
+      getGeometryFactory(SRID)->createGeometryCollection(rawGeometries));
 }
 
 const std::unique_ptr<geos::geom::Envelope> getEnvelopeFromGeometry(

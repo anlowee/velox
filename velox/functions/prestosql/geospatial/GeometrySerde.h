@@ -306,15 +306,23 @@ class GeometryDeserializer {
   /// within GEOS_TRY macro: it will catch the exceptions that need to bubble
   /// up.
   static std::unique_ptr<geos::geom::Geometry> deserialize(
-      const StringView& geometryString) {
-    velox::common::InputByteStream inputStream(geometryString.data());
-    return deserialize(inputStream, geometryString.size());
+      const StringView& geometryString,
+      bool hasSRID = false) {
+    common::InputByteStream inputStream(geometryString.data());
+    int SRID{0};
+    if (hasSRID) {
+      SRID = inputStream.read<int32_t>();
+      // Skip byte order which is always little endian
+      inputStream.read<uint8_t>();
+    }
+    return deserialize(inputStream, geometryString.size(), SRID);
   }
 
  private:
   static std::unique_ptr<geos::geom::Geometry> deserialize(
       velox::common::InputByteStream& stream,
-      size_t size);
+      size_t size,
+      int SRID);
 
   static bool isEsriNaN(double d) {
     return std::isnan(d) || d < -1.0E38;
@@ -336,25 +344,29 @@ class GeometryDeserializer {
       int count);
 
   static std::unique_ptr<geos::geom::Point> readPoint(
-      velox::common::InputByteStream& input);
+      velox::common::InputByteStream& input, int SRID);
 
   static std::unique_ptr<geos::geom::Geometry> readMultiPoint(
-      velox::common::InputByteStream& input);
+      velox::common::InputByteStream& input, int SRID);
 
   static std::unique_ptr<geos::geom::Geometry> readPolyline(
       velox::common::InputByteStream& input,
-      bool multiType);
+      bool multiType,
+      int SRID);
 
   static std::unique_ptr<geos::geom::Geometry> readPolygon(
       velox::common::InputByteStream& input,
-      bool multiType);
+      bool multiType,
+      int SRID);
 
   static std::unique_ptr<geos::geom::Geometry> readEnvelope(
-      velox::common::InputByteStream& input);
+      velox::common::InputByteStream& input,
+      int SRID);
 
   static std::unique_ptr<geos::geom::Geometry> readGeometryCollection(
       velox::common::InputByteStream& input,
-      size_t size);
+      size_t size,
+      int SRID);
 };
 
 /// Deserialize Velox's internal format to a geometry and get the Envelope.

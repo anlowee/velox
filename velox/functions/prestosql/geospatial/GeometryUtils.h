@@ -43,7 +43,7 @@ namespace facebook::velox::functions::geospatial {
         fmt::format("{}: {}", user_error_message, e.what()));    \
   }
 
-geos::geom::GeometryFactory* getGeometryFactory();
+geos::geom::GeometryFactory* getGeometryFactory(int SRID);
 
 FOLLY_ALWAYS_INLINE const
     std::unordered_map<geos::geom::GeometryTypeId, std::string>&

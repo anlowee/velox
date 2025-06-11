@@ -17,6 +17,7 @@
 #include "velox/functions/prestosql/types/GeometryRegistration.h"
 
 #include "velox/expression/CastExpr.h"
+#include "velox/functions/prestosql/types/GeometryCastOperator.h"
 #include "velox/functions/prestosql/types/GeometryType.h"
 
 namespace facebook::velox {
@@ -30,7 +31,7 @@ class GeometryTypeFactories : public CustomTypeFactories {
   }
 
   exec::CastOperatorPtr getCastOperator() const override {
-    return nullptr;
+    return std::make_shared<GeometryCastOperator>();
   }
 
   AbstractInputGeneratorPtr getInputGenerator(

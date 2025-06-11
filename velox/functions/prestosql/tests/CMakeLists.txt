@@ -63,6 +63,7 @@ add_executable(
   FindFirstTest.cpp
   FloatingPointFunctionsTest.cpp
   FromUtf8Test.cpp
+  GeometryCastTest.cpp
   GeometryFunctionsTest.cpp
   GreatestLeastTest.cpp
   HyperLogLogCastTest.cpp
