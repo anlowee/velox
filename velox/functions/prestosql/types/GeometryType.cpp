@@ -31,6 +31,8 @@ class GeometryCastOperator : public exec::CastOperator {
   // implementation, we use a custom format instead of WKB.
   bool isSupportedFromType(const TypePtr& other) const override {
     switch (other->kind()) {
+      case TypeKind::VARBINARY:
+        return true;
       case TypeKind::VARCHAR:
         return true;
       default:
@@ -40,6 +42,8 @@ class GeometryCastOperator : public exec::CastOperator {
 
   bool isSupportedToType(const TypePtr& other) const override {
     switch (other->kind()) {
+      case TypeKind::VARBINARY:
+        return true;
       case TypeKind::VARCHAR:
         return true;
       default:
@@ -55,11 +59,13 @@ class GeometryCastOperator : public exec::CastOperator {
       VectorPtr& result) const override {
     context.ensureWritable(rows, resultType, result);
 
-    if (input.typeKind() == TypeKind::VARCHAR) {
+    if (input.typeKind() == TypeKind::VARBINARY) {
+      castFromVarbinary(input, context, rows, *result);
+    } else if (input.typeKind() == TypeKind::VARCHAR) {
       castFromString(input, context, rows, *result);
     } else {
       VELOX_UNSUPPORTED(
-          "Cast from {} to Geometry not supported", resultType->toString());
+          "Cast from {} to Geometry not supported", input.toString());
     }
   }
 
@@ -71,7 +77,9 @@ class GeometryCastOperator : public exec::CastOperator {
       VectorPtr& result) const override {
     context.ensureWritable(rows, resultType, result);
 
-    if (resultType->kind() == TypeKind::VARCHAR) {
+    if (resultType->kind() == TypeKind::VARBINARY) {
+      castToVarbinary(input, context, rows, *result);
+    } else if (resultType->kind() == TypeKind::VARCHAR) {
       castToString(input, context, rows, *result);
     } else {
       VELOX_UNSUPPORTED(
@@ -80,6 +88,47 @@ class GeometryCastOperator : public exec::CastOperator {
   }
 
  private:
+  static void castToVarbinary(
+    const BaseVector& input,
+    exec::EvalCtx& context,
+    const SelectivityVector& rows,
+    BaseVector& result) {
+    auto* flatResult = result.as<FlatVector<StringView>>();
+    const auto* geometries = input.as<SimpleVector<StringView>>();
+
+    context.applyToSelectedNoThrow(rows, [&](auto row) {
+      const auto geometry = geometries->valueAt(row);
+
+      exec::StringWriter<false> varbinaryHexString(flatResult, row);
+      auto varbinaryBytes = geometry.data();
+      for (size_t i{0}; i < geometry.size(); ++i) {
+          unsigned char byte = static_cast<unsigned char>(varbinaryBytes[i]);
+          char hexBuf[3];  // 2 digits + null terminator
+          std::snprintf(hexBuf, sizeof(hexBuf), "%02X", byte);
+          varbinaryHexString.copy_from(hexBuf);
+      }
+      varbinaryHexString.finalize();
+    });
+  }
+
+  static void castFromVarbinary(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      BaseVector& result) {
+    auto* flatResult = result.as<FlatVector<StringView>>();
+    const auto* geometryVarbinaryHexStrings = input.as<SimpleVector<StringView>>();
+
+    context.applyToSelectedNoThrow(rows, [&](auto row) {
+      const auto varbinaryHexString = geometryVarbinaryHexStrings->valueAt(row);
+      auto geosGeometry =
+          functions::GeometryUtils::deserialize(varbinaryHexString, true);
+      exec::StringWriter<false> geometry(flatResult, row);
+      functions::GeometryUtils::serialize(geosGeometry, geometry);
+      geometry.finalize();
+    });
+  }
+
   static void castToString(
       const BaseVector& input,
       exec::EvalCtx& context,
