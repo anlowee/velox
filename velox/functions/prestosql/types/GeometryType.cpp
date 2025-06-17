@@ -88,6 +88,10 @@ class GeometryCastOperator : public exec::CastOperator {
   }
 
  private:
+  // Note that current castToVarbinary is just to cast to the binary serialized
+  // into the format same as Java's slice, it is not any specific format (e.g.,
+  // ESRI). We don't support this is because we don't encounter such user cases.
+  // This should be implemented in the future.
   static void castToVarbinary(
     const BaseVector& input,
     exec::EvalCtx& context,

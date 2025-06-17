@@ -36,13 +36,12 @@ class GeometryUtils {
   }
 
   static std::unique_ptr<geos::geom::Geometry> deserialize(
-      const StringView& geometryString, bool hasSRID = false) {
+      const StringView& geometryString, bool isFromVarbinary = false) {
     SliceInput sliceInput(geometryString.data(), geometryString.size());
-    int SRID{0};
-    if (hasSRID) {
-      SRID = sliceInput.readInt();
+    if (isFromVarbinary) {
+      return deserializeWithEsriType(sliceInput);
     }
-    return deserialize(sliceInput, SRID);
+    return deserialize(sliceInput);
   }
 
   static std::unique_ptr<geos::geom::Geometry> createPoint() {
@@ -215,30 +214,69 @@ class GeometryUtils {
   }
 
   static std::unique_ptr<geos::geom::Geometry> deserialize(
-      SliceInput& sliceInput, int SRID) {
+      SliceInput& sliceInput) {
     auto geometryType =
         static_cast<GeometrySerializationType>(sliceInput.readByte());
     switch (geometryType) {
       case GeometrySerializationType::POINT:
-        return readPoint(sliceInput, SRID);
+        return readPoint(sliceInput, 0);
       case GeometrySerializationType::MULTI_POINT:
-        return readMultiPoint(sliceInput, SRID);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readMultiPoint(sliceInput, 0);
       case GeometrySerializationType::LINE_STRING:
-        return readPolyline(sliceInput, false, SRID);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, false, 0);
       case GeometrySerializationType::MULTI_LINE_STRING:
-        return readPolyline(sliceInput, true, SRID);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, true, 0);
       case GeometrySerializationType::POLYGON:
-        return readPolygon(sliceInput, false, SRID);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, false, 0);
       case GeometrySerializationType::MULTI_POLYGON:
-        return readPolygon(sliceInput, true, SRID);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, true, 0);
       case GeometrySerializationType::ENVELOPE:
-        return readEnvelope(sliceInput, SRID);
+        return readEnvelope(sliceInput);
       case GeometrySerializationType::GEOMETRY_COLLECTION:
-        return readGeometryCollection(sliceInput, SRID);
+        return readGeometryCollection(sliceInput);
       default:
         VELOX_USER_FAIL(
             "Unrecognized geometry type: {}",
             static_cast<uint8_t>(geometryType));
+        break;
+    }
+    return nullptr;
+  }
+
+  static std::unique_ptr<geos::geom::Geometry> deserializeWithEsriType(
+      SliceInput& sliceInput) {
+    int SRID{0};
+    SRID = sliceInput.readInt();
+    // Skip 1-byte Geometry type but use 4-bytes Esri type
+    sliceInput.readByte();
+    auto esriType =
+        static_cast<EsriShapeType>(sliceInput.readInt());
+    switch (esriType) {
+      case EsriShapeType::POINT:
+        return readPoint(sliceInput, SRID);
+      case EsriShapeType::MULTI_POINT:
+        skipEnvelope(sliceInput);
+        return readMultiPoint(sliceInput, SRID);
+      case EsriShapeType::POLYLINE:
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, false, SRID);
+      case EsriShapeType::POLYGON:
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, false, SRID);
+      default:
+        VELOX_USER_FAIL(
+            "Unrecognized esri type: {}",
+            static_cast<int32_t>(esriType));
         break;
     }
     return nullptr;
@@ -535,8 +573,6 @@ class GeometryUtils {
   static std::unique_ptr<geos::geom::Geometry> readMultiPoint(
       SliceInput& input,
       int SRID) {
-    skipEsriType(input);
-    skipEnvelope(input);
     int pointCount = input.readInt();
     auto coords = readCoordinates(input, pointCount);
     std::vector<std::unique_ptr<geos::geom::Point>> points;
@@ -552,8 +588,6 @@ class GeometryUtils {
       SliceInput& input,
       bool multiType,
       int SRID) {
-    skipEsriType(input);
-    skipEnvelope(input);
     int partCount = input.readInt();
 
     if (partCount == 0) {
@@ -601,9 +635,6 @@ class GeometryUtils {
       SliceInput& input,
       bool multiType,
       int SRID) {
-    skipEsriType(input);
-    skipEnvelope(input);
-
     int partCount = input.readInt();
     if (partCount == 0) {
       if (multiType) {
@@ -659,7 +690,7 @@ class GeometryUtils {
     return std::move(polygons[0]);
   }
 
-  static std::unique_ptr<geos::geom::Geometry> readEnvelope(SliceInput& input, int SRID) {
+  static std::unique_ptr<geos::geom::Geometry> readEnvelope(SliceInput& input) {
     double xMin = input.readDouble();
     double yMin = input.readDouble();
     double xMax = input.readDouble();
@@ -667,7 +698,7 @@ class GeometryUtils {
 
     if (isEsriNaN(xMin) || isEsriNaN(yMin) || isEsriNaN(xMax) ||
         isEsriNaN(yMax)) {
-      return getGeometryFactory(SRID)->createPolygon();
+      return getGeometryFactory(0)->createPolygon();
     }
 
     auto coordinates = std::make_unique<geos::geom::CoordinateSequence>();
@@ -677,18 +708,18 @@ class GeometryUtils {
     coordinates->add(geos::geom::Coordinate(xMax, yMin));
     coordinates->add(geos::geom::Coordinate(xMin, yMin)); // Close the ring
 
-    auto shell = getGeometryFactory(SRID)->createLinearRing(std::move(coordinates));
-    return getGeometryFactory(SRID)->createPolygon(std::move(shell), {});
+    auto shell = getGeometryFactory(0)->createLinearRing(std::move(coordinates));
+    return getGeometryFactory(0)->createPolygon(std::move(shell), {});
   }
 
   static std::unique_ptr<geos::geom::Geometry> readGeometryCollection(
-      SliceInput& input, int SRID) {
+      SliceInput& input) {
     std::vector<std::unique_ptr<geos::geom::Geometry>> geometries;
 
     while (input.remaining() > 0) {
       // Skip the length field
       input.readInt();
-      geometries.push_back(deserialize(input, SRID));
+      geometries.push_back(deserialize(input));
     }
     std::vector<const geos::geom::Geometry*> rawGeometries;
     for (const auto& geometry : geometries) {
@@ -696,7 +727,7 @@ class GeometryUtils {
     }
 
     return std::unique_ptr<geos::geom::GeometryCollection>(
-        getGeometryFactory(SRID)->createGeometryCollection(rawGeometries));
+        getGeometryFactory(0)->createGeometryCollection(rawGeometries));
   }
 };
 } // namespace facebook::velox::functions
