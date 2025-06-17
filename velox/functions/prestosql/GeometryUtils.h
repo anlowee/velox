@@ -41,8 +41,6 @@ class GeometryUtils {
     int SRID{0};
     if (hasSRID) {
       SRID = sliceInput.readInt();
-      // Skip byte order which is always little endian
-      sliceInput.skip(1);
     }
     return deserialize(sliceInput, SRID);
   }
