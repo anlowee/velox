@@ -227,19 +227,19 @@ class GeometryUtils {
       case GeometrySerializationType::LINE_STRING:
         skipEsriType(sliceInput);
         skipEnvelope(sliceInput);
-        return readPolyline(sliceInput, false, 0);
+        return readPolyline(sliceInput, false, false, 0);
       case GeometrySerializationType::MULTI_LINE_STRING:
         skipEsriType(sliceInput);
         skipEnvelope(sliceInput);
-        return readPolyline(sliceInput, true, 0);
+        return readPolyline(sliceInput, true, false, 0);
       case GeometrySerializationType::POLYGON:
         skipEsriType(sliceInput);
         skipEnvelope(sliceInput);
-        return readPolygon(sliceInput, false, 0);
+        return readPolygon(sliceInput, false, false, 0);
       case GeometrySerializationType::MULTI_POLYGON:
         skipEsriType(sliceInput);
         skipEnvelope(sliceInput);
-        return readPolygon(sliceInput, true, 0);
+        return readPolygon(sliceInput, true, false, 0);
       case GeometrySerializationType::ENVELOPE:
         return readEnvelope(sliceInput);
       case GeometrySerializationType::GEOMETRY_COLLECTION:
@@ -269,10 +269,10 @@ class GeometryUtils {
         return readMultiPoint(sliceInput, SRID);
       case EsriShapeType::POLYLINE:
         skipEnvelope(sliceInput);
-        return readPolyline(sliceInput, false, SRID);
+        return readPolyline(sliceInput, false, true, SRID);
       case EsriShapeType::POLYGON:
         skipEnvelope(sliceInput);
-        return readPolygon(sliceInput, false, SRID);
+        return readPolygon(sliceInput, false, true, SRID);
       default:
         VELOX_USER_FAIL(
             "Unrecognized esri type: {}",
@@ -584,14 +584,16 @@ class GeometryUtils {
     return getGeometryFactory(SRID)->createMultiPoint(std::move(points));
   }
 
+  // multiType is meaningful only when isFromVarbinary is false
   static std::unique_ptr<geos::geom::Geometry> readPolyline(
       SliceInput& input,
       bool multiType,
+      bool isFromVarbinary,
       int SRID) {
     int partCount = input.readInt();
 
     if (partCount == 0) {
-      if (multiType) {
+      if (multiType && !isFromVarbinary) {
         return getGeometryFactory(SRID)->createMultiLineString();
       }
       return getGeometryFactory(SRID)->createLineString();
@@ -619,25 +621,36 @@ class GeometryUtils {
           readCoordinates(input, partLengths[i])));
     }
 
-    if (multiType) {
-      return getGeometryFactory(SRID)->createMultiLineString(std::move(lineStrings));
+    if (!isFromVarbinary) {
+      if (multiType) {
+        return getGeometryFactory(SRID)->createMultiLineString(std::move(lineStrings));
+      }
+      if (lineStrings.size() != 1) {
+        VELOX_USER_FAIL(
+            "Expected a single LineString for non-multitype polyline.");
+      }
+
+      return std::move(lineStrings[0]);
     }
 
-    if (lineStrings.size() != 1) {
+    if (lineStrings.size() > 1) {
+      return getGeometryFactory(SRID)->createMultiLineString(std::move(lineStrings));
+    } else if (lineStrings.size() != 1) {
       VELOX_USER_FAIL(
           "Expected a single LineString for non-multitype polyline.");
     }
-
     return std::move(lineStrings[0]);
   }
 
+  // multiType is meaningful only when isFromVarbinary is false
   static std::unique_ptr<geos::geom::Geometry> readPolygon(
       SliceInput& input,
       bool multiType,
+      bool isFromVarbinary,
       int SRID) {
     int partCount = input.readInt();
     if (partCount == 0) {
-      if (multiType) {
+      if (multiType && !isFromVarbinary) {
         return getGeometryFactory(SRID)->createMultiPolygon();
       }
       return getGeometryFactory(SRID)->createPolygon();
@@ -680,11 +693,20 @@ class GeometryUtils {
     polygons.push_back(
         getGeometryFactory(SRID)->createPolygon(std::move(shell), std::move(holes)));
 
-    if (multiType) {
-      return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
+    if (!isFromVarbinary) {
+      if (multiType) {
+        return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
+      }
+
+      if (polygons.size() != 1) {
+        VELOX_USER_FAIL("Expected exactly one polygon, but found multiple.");
+      }
+      return std::move(polygons[0]);
     }
 
-    if (polygons.size() != 1) {
+    if (polygons.size() > 1) {
+      return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
+    } else if (polygons.size() != 1) {
       VELOX_USER_FAIL("Expected exactly one polygon, but found multiple.");
     }
     return std::move(polygons[0]);
