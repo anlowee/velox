@@ -27,8 +27,6 @@ namespace facebook::velox {
 #ifdef VELOX_ENABLE_GEO
 class GeometryCastOperator : public exec::CastOperator {
  public:
-  // We do not support casting to Geometry from VARBINARY because in the Java
-  // implementation, we use a custom format instead of WKB.
   bool isSupportedFromType(const TypePtr& other) const override {
     switch (other->kind()) {
       case TypeKind::VARBINARY:
@@ -42,8 +40,6 @@ class GeometryCastOperator : public exec::CastOperator {
 
   bool isSupportedToType(const TypePtr& other) const override {
     switch (other->kind()) {
-      case TypeKind::VARBINARY:
-        return true;
       case TypeKind::VARCHAR:
         return true;
       default:
@@ -77,9 +73,7 @@ class GeometryCastOperator : public exec::CastOperator {
       VectorPtr& result) const override {
     context.ensureWritable(rows, resultType, result);
 
-    if (resultType->kind() == TypeKind::VARBINARY) {
-      castToVarbinary(input, context, rows, *result);
-    } else if (resultType->kind() == TypeKind::VARCHAR) {
+    if (resultType->kind() == TypeKind::VARCHAR) {
       castToString(input, context, rows, *result);
     } else {
       VELOX_UNSUPPORTED(
@@ -88,40 +82,14 @@ class GeometryCastOperator : public exec::CastOperator {
   }
 
  private:
-  // Note that current castToVarbinary is just to cast to the binary serialized
-  // into the format same as Java's slice, it is not any specific format (e.g.,
-  // ESRI). We don't support this is because we don't encounter such user cases.
-  // This should be implemented in the future.
-  static void castToVarbinary(
-    const BaseVector& input,
-    exec::EvalCtx& context,
-    const SelectivityVector& rows,
-    BaseVector& result) {
-    auto* flatResult = result.as<FlatVector<StringView>>();
-    const auto* geometries = input.as<SimpleVector<StringView>>();
-
-    context.applyToSelectedNoThrow(rows, [&](auto row) {
-      const auto geometry = geometries->valueAt(row);
-
-      exec::StringWriter<false> varbinaryHexString(flatResult, row);
-      auto varbinaryBytes = geometry.data();
-      for (size_t i{0}; i < geometry.size(); ++i) {
-          unsigned char byte = static_cast<unsigned char>(varbinaryBytes[i]);
-          char hexBuf[3];  // 2 digits + null terminator
-          std::snprintf(hexBuf, sizeof(hexBuf), "%02X", byte);
-          varbinaryHexString.copy_from(hexBuf);
-      }
-      varbinaryHexString.finalize();
-    });
-  }
-
   static void castFromVarbinary(
       const BaseVector& input,
       exec::EvalCtx& context,
       const SelectivityVector& rows,
       BaseVector& result) {
     auto* flatResult = result.as<FlatVector<StringView>>();
-    const auto* geometryVarbinaryHexStrings = input.as<SimpleVector<StringView>>();
+    const auto* geometryVarbinaryHexStrings =
+        input.as<SimpleVector<StringView>>();
 
     context.applyToSelectedNoThrow(rows, [&](auto row) {
       const auto varbinaryHexString = geometryVarbinaryHexStrings->valueAt(row);
