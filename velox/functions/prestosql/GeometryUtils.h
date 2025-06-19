@@ -641,8 +641,7 @@ class GeometryUtils {
       return getGeometryFactory(SRID)->createMultiLineString(
           std::move(lineStrings));
     } else if (lineStrings.size() != 1) {
-      VELOX_USER_FAIL(
-          "Expected a single LineString for non-multitype polyline.");
+      VELOX_USER_FAIL("Expected at least one linestring, but 0 or negative");
     }
     return std::move(lineStrings[0]);
   }
@@ -714,7 +713,7 @@ class GeometryUtils {
     if (polygons.size() > 1) {
       return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
     } else if (polygons.size() != 1) {
-      VELOX_USER_FAIL("Expected exactly one polygon, but found multiple.");
+      VELOX_USER_FAIL("Expected at least one polygon, but 0 or negative");
     }
     return std::move(polygons[0]);
   }
