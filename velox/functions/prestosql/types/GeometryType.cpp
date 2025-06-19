@@ -27,10 +27,10 @@ namespace facebook::velox {
 #ifdef VELOX_ENABLE_GEO
 class GeometryCastOperator : public exec::CastOperator {
  public:
-  // We do not support casting to Geometry from VARBINARY because in the Java
-  // implementation, we use a custom format instead of WKB.
   bool isSupportedFromType(const TypePtr& other) const override {
     switch (other->kind()) {
+      case TypeKind::VARBINARY:
+        return true;
       case TypeKind::VARCHAR:
         return true;
       default:
@@ -55,11 +55,13 @@ class GeometryCastOperator : public exec::CastOperator {
       VectorPtr& result) const override {
     context.ensureWritable(rows, resultType, result);
 
-    if (input.typeKind() == TypeKind::VARCHAR) {
+    if (input.typeKind() == TypeKind::VARBINARY) {
+      castFromVarbinary(input, context, rows, *result);
+    } else if (input.typeKind() == TypeKind::VARCHAR) {
       castFromString(input, context, rows, *result);
     } else {
       VELOX_UNSUPPORTED(
-          "Cast from {} to Geometry not supported", resultType->toString());
+          "Cast from {} to Geometry not supported", input.toString());
     }
   }
 
@@ -80,6 +82,25 @@ class GeometryCastOperator : public exec::CastOperator {
   }
 
  private:
+  static void castFromVarbinary(
+      const BaseVector& input,
+      exec::EvalCtx& context,
+      const SelectivityVector& rows,
+      BaseVector& result) {
+    auto* flatResult = result.as<FlatVector<StringView>>();
+    const auto* geometryVarbinaryHexStrings =
+        input.as<SimpleVector<StringView>>();
+
+    context.applyToSelectedNoThrow(rows, [&](auto row) {
+      const auto varbinaryHexString = geometryVarbinaryHexStrings->valueAt(row);
+      auto geosGeometry =
+          functions::GeometryUtils::deserialize(varbinaryHexString, true);
+      exec::StringWriter<false> geometry(flatResult, row);
+      functions::GeometryUtils::serialize(geosGeometry, geometry);
+      geometry.finalize();
+    });
+  }
+
   static void castToString(
       const BaseVector& input,
       exec::EvalCtx& context,

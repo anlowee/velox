@@ -36,20 +36,24 @@ class GeometryUtils {
   }
 
   static std::unique_ptr<geos::geom::Geometry> deserialize(
-      const StringView& geometryString) {
+      const StringView& geometryString,
+      bool isFromVarbinary = false) {
     SliceInput sliceInput(geometryString.data(), geometryString.size());
+    if (isFromVarbinary) {
+      return deserializeWithEsriType(sliceInput);
+    }
     return deserialize(sliceInput);
   }
 
   static std::unique_ptr<geos::geom::Geometry> createPoint() {
     return std::unique_ptr<geos::geom::Point>(
-        GEOMETRY_FACTORY->createPoint());
+        getGeometryFactory()->createPoint());
   }
 
   static std::unique_ptr<geos::geom::Geometry> createPoint(double x, double y) {
     geos::geom::Coordinate coord(x, y);
     return std::unique_ptr<geos::geom::Point>(
-        GEOMETRY_FACTORY->createPoint(coord));
+        getGeometryFactory()->createPoint(coord));
   }
 
  private:
@@ -216,17 +220,27 @@ class GeometryUtils {
         static_cast<GeometrySerializationType>(sliceInput.readByte());
     switch (geometryType) {
       case GeometrySerializationType::POINT:
-        return readPoint(sliceInput);
+        return readPoint(sliceInput, 0);
       case GeometrySerializationType::MULTI_POINT:
-        return readMultiPoint(sliceInput);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readMultiPoint(sliceInput, 0);
       case GeometrySerializationType::LINE_STRING:
-        return readPolyline(sliceInput, false);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, false, false, 0);
       case GeometrySerializationType::MULTI_LINE_STRING:
-        return readPolyline(sliceInput, true);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, true, false, 0);
       case GeometrySerializationType::POLYGON:
-        return readPolygon(sliceInput, false);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, false, false, 0);
       case GeometrySerializationType::MULTI_POLYGON:
-        return readPolygon(sliceInput, true);
+        skipEsriType(sliceInput);
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, true, false, 0);
       case GeometrySerializationType::ENVELOPE:
         return readEnvelope(sliceInput);
       case GeometrySerializationType::GEOMETRY_COLLECTION:
@@ -235,6 +249,33 @@ class GeometryUtils {
         VELOX_USER_FAIL(
             "Unrecognized geometry type: {}",
             static_cast<uint8_t>(geometryType));
+        break;
+    }
+    return nullptr;
+  }
+
+  static std::unique_ptr<geos::geom::Geometry> deserializeWithEsriType(
+      SliceInput& sliceInput) {
+    int SRID{0};
+    SRID = sliceInput.readInt();
+    // Skip 1-byte Geometry type but use 4-bytes Esri type
+    sliceInput.readByte();
+    auto esriType = static_cast<EsriShapeType>(sliceInput.readInt());
+    switch (esriType) {
+      case EsriShapeType::POINT:
+        return readPoint(sliceInput, SRID);
+      case EsriShapeType::MULTI_POINT:
+        skipEnvelope(sliceInput);
+        return readMultiPoint(sliceInput, SRID);
+      case EsriShapeType::POLYLINE:
+        skipEnvelope(sliceInput);
+        return readPolyline(sliceInput, false, true, SRID);
+      case EsriShapeType::POLYGON:
+        skipEnvelope(sliceInput);
+        return readPolygon(sliceInput, false, true, SRID);
+      default:
+        VELOX_USER_FAIL(
+            "Unrecognized esri type: {}", static_cast<int32_t>(esriType));
         break;
     }
     return nullptr;
@@ -487,8 +528,13 @@ class GeometryUtils {
     }
   }
 
-  inline static thread_local auto GEOMETRY_FACTORY =
-      geos::geom::GeometryFactory::create();
+  static geos::geom::GeometryFactory* getGeometryFactory(int SRID = 0) {
+    auto precisionModel = std::make_unique<geos::geom::PrecisionModel>(
+        geos::geom::PrecisionModel::FLOATING);
+    thread_local static geos::geom::GeometryFactory::Ptr geometryFactory =
+        geos::geom::GeometryFactory::create(precisionModel.get(), SRID);
+    return geometryFactory.get();
+  }
 
   static void skipEsriType(SliceInput& input) {
     input.skip(sizeof(int32_t)); // Esri type is an integer
@@ -515,42 +561,45 @@ class GeometryUtils {
     return coords;
   }
 
-  static std::unique_ptr<geos::geom::Point> readPoint(SliceInput& input) {
+  static std::unique_ptr<geos::geom::Point> readPoint(
+      SliceInput& input,
+      int SRID) {
     geos::geom::Coordinate coordinate = readCoordinate(input);
     if (std::isnan(coordinate.x) || std::isnan(coordinate.y)) {
-      return GEOMETRY_FACTORY->createPoint();
+      return getGeometryFactory(SRID)->createPoint();
     }
     return std::unique_ptr<geos::geom::Point>(
-        GEOMETRY_FACTORY->createPoint(coordinate));
+        getGeometryFactory(SRID)->createPoint(coordinate));
   }
 
   static std::unique_ptr<geos::geom::Geometry> readMultiPoint(
-      SliceInput& input) {
-    skipEsriType(input);
-    skipEnvelope(input);
+      SliceInput& input,
+      int SRID) {
     int pointCount = input.readInt();
     auto coords = readCoordinates(input, pointCount);
     std::vector<std::unique_ptr<geos::geom::Point>> points;
     for (size_t i = 0; i < coords->size(); ++i) {
       points.push_back(
-          std::unique_ptr<geos::geom::Point>(GEOMETRY_FACTORY->createPoint(
-              geos::geom::Coordinate(coords->getX(i), coords->getY(i)))));
+          std::unique_ptr<geos::geom::Point>(
+              getGeometryFactory(SRID)->createPoint(
+                  geos::geom::Coordinate(coords->getX(i), coords->getY(i)))));
     }
-    return GEOMETRY_FACTORY->createMultiPoint(std::move(points));
+    return getGeometryFactory(SRID)->createMultiPoint(std::move(points));
   }
 
+  // multiType is meaningful only when isFromVarbinary is false
   static std::unique_ptr<geos::geom::Geometry> readPolyline(
       SliceInput& input,
-      bool multiType) {
-    skipEsriType(input);
-    skipEnvelope(input);
+      bool multiType,
+      bool isFromVarbinary,
+      int SRID) {
     int partCount = input.readInt();
 
     if (partCount == 0) {
-      if (multiType) {
-        return GEOMETRY_FACTORY->createMultiLineString();
+      if (multiType && !isFromVarbinary) {
+        return getGeometryFactory(SRID)->createMultiLineString();
       }
-      return GEOMETRY_FACTORY->createLineString();
+      return getGeometryFactory(SRID)->createLineString();
     }
 
     int pointCount = input.readInt();
@@ -571,34 +620,46 @@ class GeometryUtils {
 
     std::vector<std::unique_ptr<geos::geom::LineString>> lineStrings;
     for (int i = 0; i < partCount; ++i) {
-      lineStrings.push_back(GEOMETRY_FACTORY->createLineString(
+      lineStrings.push_back(getGeometryFactory(SRID)->createLineString(
           readCoordinates(input, partLengths[i])));
     }
 
-    if (multiType) {
-      return GEOMETRY_FACTORY->createMultiLineString(std::move(lineStrings));
-    }
-
-    if (lineStrings.size() != 1) {
-      VELOX_USER_FAIL(
+    if (!isFromVarbinary) {
+      if (multiType) {
+        return getGeometryFactory(SRID)->createMultiLineString(
+            std::move(lineStrings));
+      }
+      VELOX_CHECK_EQ(
+          lineStrings.size(),
+          1,
           "Expected a single LineString for non-multitype polyline.");
+
+      return std::move(lineStrings[0]);
     }
 
+    if (lineStrings.size() > 1) {
+      return getGeometryFactory(SRID)->createMultiLineString(
+          std::move(lineStrings));
+    }
+    VELOX_CHECK_EQ(
+        lineStrings.size(),
+        1,
+        "Expected at least one linestring, but 0 or negative.");
     return std::move(lineStrings[0]);
   }
 
+  // multiType is meaningful only when isFromVarbinary is false
   static std::unique_ptr<geos::geom::Geometry> readPolygon(
       SliceInput& input,
-      bool multiType) {
-    skipEsriType(input);
-    skipEnvelope(input);
-
+      bool multiType,
+      bool isFromVarbinary,
+      int SRID) {
     int partCount = input.readInt();
     if (partCount == 0) {
-      if (multiType) {
-        return GEOMETRY_FACTORY->createMultiPolygon();
+      if (multiType && !isFromVarbinary) {
+        return getGeometryFactory(SRID)->createMultiPolygon();
       }
-      return GEOMETRY_FACTORY->createPolygon();
+      return getGeometryFactory(SRID)->createPolygon();
     }
 
     int pointCount = input.readInt();
@@ -625,26 +686,41 @@ class GeometryUtils {
 
       if (isClockwise(coordinates, 0, coordinates->size())) {
         if (shell) {
-          polygons.push_back(GEOMETRY_FACTORY->createPolygon(
+          polygons.push_back(getGeometryFactory(SRID)->createPolygon(
               std::move(shell), std::move(holes)));
           holes.clear();
         }
-        shell = GEOMETRY_FACTORY->createLinearRing(std::move(coordinates));
+        shell =
+            getGeometryFactory(SRID)->createLinearRing(std::move(coordinates));
       } else {
         holes.push_back(
-            GEOMETRY_FACTORY->createLinearRing(std::move(coordinates)));
+            getGeometryFactory(SRID)->createLinearRing(std::move(coordinates)));
       }
     }
-    polygons.push_back(
-        GEOMETRY_FACTORY->createPolygon(std::move(shell), std::move(holes)));
+    polygons.push_back(getGeometryFactory(SRID)->createPolygon(
+        std::move(shell), std::move(holes)));
 
-    if (multiType) {
-      return GEOMETRY_FACTORY->createMultiPolygon(std::move(polygons));
+    if (!isFromVarbinary) {
+      if (multiType) {
+        return getGeometryFactory(SRID)->createMultiPolygon(
+            std::move(polygons));
+      }
+      VELOX_CHECK_EQ(
+          polygons.size(),
+          1,
+          "Expected exactly one polygon, but found multiple.");
+
+      return std::move(polygons[0]);
     }
 
-    if (polygons.size() != 1) {
-      VELOX_USER_FAIL("Expected exactly one polygon, but found multiple.");
+    if (polygons.size() > 1) {
+      return getGeometryFactory(SRID)->createMultiPolygon(std::move(polygons));
     }
+    VELOX_CHECK_EQ(
+        polygons.size(),
+        1,
+        "Expected at least one polygon, but 0 or negative.");
+
     return std::move(polygons[0]);
   }
 
@@ -656,7 +732,7 @@ class GeometryUtils {
 
     if (isEsriNaN(xMin) || isEsriNaN(yMin) || isEsriNaN(xMax) ||
         isEsriNaN(yMax)) {
-      return GEOMETRY_FACTORY->createPolygon();
+      return getGeometryFactory(0)->createPolygon();
     }
 
     auto coordinates = std::make_unique<geos::geom::CoordinateSequence>();
@@ -666,8 +742,9 @@ class GeometryUtils {
     coordinates->add(geos::geom::Coordinate(xMax, yMin));
     coordinates->add(geos::geom::Coordinate(xMin, yMin)); // Close the ring
 
-    auto shell = GEOMETRY_FACTORY->createLinearRing(std::move(coordinates));
-    return GEOMETRY_FACTORY->createPolygon(std::move(shell), {});
+    auto shell =
+        getGeometryFactory(0)->createLinearRing(std::move(coordinates));
+    return getGeometryFactory(0)->createPolygon(std::move(shell), {});
   }
 
   static std::unique_ptr<geos::geom::Geometry> readGeometryCollection(
@@ -685,7 +762,7 @@ class GeometryUtils {
     }
 
     return std::unique_ptr<geos::geom::GeometryCollection>(
-        GEOMETRY_FACTORY->createGeometryCollection(rawGeometries));
+        getGeometryFactory(0)->createGeometryCollection(rawGeometries));
   }
 };
 } // namespace facebook::velox::functions
