@@ -502,8 +502,7 @@ if(${VELOX_ENABLE_CLP_CONNECTOR})
   velox_set_source(absl)
   velox_resolve_dependency(absl)
 
-  set(curl_SOURCE BUNDLED)
-  velox_resolve_dependency(curl)
+  find_package(CURL REQUIRED)
   find_package(ANTLR REQUIRED)
 endif()
 

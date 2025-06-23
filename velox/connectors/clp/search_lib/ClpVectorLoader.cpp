@@ -228,6 +228,9 @@ void ClpVectorLoader::loadInternal(
       for (int vectorIndex : rows) {
         auto messageIndex = (*filteredRowIndices_)[vectorIndex];
 
+        if (nullptr == columnReader_) {
+          continue;
+        }
         auto jsonString =
             std::get<std::string>(columnReader_->extract_value(messageIndex));
 
