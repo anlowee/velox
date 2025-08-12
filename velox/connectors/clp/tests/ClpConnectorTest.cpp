@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include "velox/common/base/Fs.h"
-#include "velox/common/base/tests/GTestUtils.h"
 #include "velox/connectors/clp/ClpColumnHandle.h"
 #include "velox/connectors/clp/ClpConnector.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
@@ -54,8 +53,7 @@ class ClpConnectorTest : public exec::test::OperatorTestBase {
             ->newConnector(
                 kClpConnectorId,
                 std::make_shared<config::ConfigBase>(
-                    std::unordered_map<std::string, std::string>{
-                        {"clp.split-source", "local"}}));
+                    std::unordered_map<std::string, std::string>{}));
     connector::registerConnector(clpConnector);
   }
 

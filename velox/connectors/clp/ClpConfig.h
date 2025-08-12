@@ -16,27 +16,29 @@
 
 #pragma once
 
-#include "velox/common/config/Config.h"
-
 namespace facebook::velox::config {
 class ConfigBase;
-}
+} // namespace facebook::velox::config
 
 namespace facebook::velox::connector::clp {
 
+class ClpS3AuthProviderBase;
+
 class ClpConfig {
  public:
+  enum class S3AuthProvider {
+    kClpPackage,
+  };
+
   enum class StorageType {
     kFs,
     kS3,
   };
 
+  static constexpr const char* kAuthProvider = "clp.s3-auth-provider";
   static constexpr const char* kStorageType = "clp.storage-type";
 
-  explicit ClpConfig(std::shared_ptr<const config::ConfigBase> config) {
-    VELOX_CHECK_NOT_NULL(config, "Config is null for CLP initialization");
-    config_ = std::move(config);
-  }
+  explicit ClpConfig(std::shared_ptr<const config::ConfigBase> config);
 
   [[nodiscard]] const std::shared_ptr<const config::ConfigBase>& config()
       const {
@@ -44,9 +46,12 @@ class ClpConfig {
   }
 
   StorageType storageType() const;
+  std::shared_ptr<ClpS3AuthProviderBase> s3AuthProvider() const;
 
  private:
   std::shared_ptr<const config::ConfigBase> config_;
+  std::shared_ptr<ClpS3AuthProviderBase> s3AuthProvider_;
+  StorageType storageType_;
 };
 
 } // namespace facebook::velox::connector::clp
