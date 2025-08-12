@@ -390,6 +390,7 @@ if(ENABLE_ALL_WARNINGS)
       "-Wno-unused \
        -Wno-unused-parameter \
        -Wno-sign-compare \
+       -Wno-stringop-overflow \
        -Wno-ignored-qualifiers \
        ${KNOWN_COMPILER_SPECIFIC_WARNINGS}")
 
