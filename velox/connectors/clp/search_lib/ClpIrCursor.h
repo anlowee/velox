@@ -16,16 +16,18 @@
 
 #pragma once
 
+#include "streaming_compression/Decompressor.hpp"
+#include "streaming_compression/zstd/Decompressor.hpp"
 #include "velox/connectors/clp/search_lib/BaseClpCursor.h"
 
 namespace facebook::velox::connector::clp::search_lib {
 
-class ClpArchiveCursor final : public BaseClpCursor {
+class ClpIrCursor final : public BaseClpCursor {
  public:
-  explicit ClpArchiveCursor(
+  explicit ClpIrCursor(
       clp_s::InputSource inputSource,
       std::string_view splitPath);
-  ~ClpArchiveCursor() override;
+  ~ClpIrCursor() override;
 
   uint64_t fetchNext(
       uint64_t numRows,
@@ -39,16 +41,9 @@ class ClpArchiveCursor final : public BaseClpCursor {
   ErrorCode loadSplit() override;
 
  private:
-  std::vector<int32_t> matchedSchemas_;
-  size_t currentSchemaIndex_{0};
-  int32_t currentSchemaId_{-1};
-  bool currentSchemaTableLoaded_{false};
-
-  std::shared_ptr<clp_s::search::SchemaMatch> schemaMatch_;
-  std::shared_ptr<ClpQueryRunner> queryRunner_;
-  std::shared_ptr<clp_s::search::Projection> projection_;
-
-  std::shared_ptr<clp_s::ArchiveReader> archiveReader_;
+  std::shared_ptr<::clp::ReaderInterface> ir_reader_;
+  std::shared_ptr<::clp::streaming_compression::zstd::Decompressor>
+      ir_decompressor_;
 };
 
 } // namespace facebook::velox::connector::clp::search_lib

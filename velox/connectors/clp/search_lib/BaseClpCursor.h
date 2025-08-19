@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/search_lib/ClpQueryRunner.h"
 
 namespace clp_s {
@@ -69,13 +70,16 @@ struct Field {
 /// schemas and archives, applying filters, and iterating over the results. It
 /// abstracts away the low-level details of archive access and schema matching
 /// while supporting projection and batch-oriented retrieval of filtered rows.
-class ClpCursor {
+class BaseClpCursor {
  public:
-  explicit ClpCursor(clp_s::InputSource inputSource, std::string_view splitPath)
+  explicit BaseClpCursor(
+      clp_s::InputSource inputSource,
+      std::string_view splitPath)
       : errorCode_(ErrorCode::QueryNotInitialized),
         inputSource_(inputSource),
-        splitPath_(std::string(splitPath)) {}
-  virtual ~ClpCursor() = default;
+        splitPath_(std::string(splitPath)),
+        splitType_(ClpConnectorSplit::SplitType::kArchive) {}
+  virtual ~BaseClpCursor() = default;
 
   /// Executes a query. This function parses, validates, and prepares the given
   /// query for execution.
@@ -83,9 +87,9 @@ class ClpCursor {
   /// @param query The KQL query to execute.
   /// @param outputColumns A vector specifying the columns to be included in the
   /// query result.
-  virtual void executeQuery(
+  void executeQuery(
       const std::string& query,
-      const std::vector<Field>& outputColumns) = 0;
+      const std::vector<Field>& outputColumns);
 
   /// Fetches the next set of rows from the cursor. If the split and schema
   /// are not yet loaded, this function will perform the necessary loading.
@@ -104,12 +108,14 @@ class ClpCursor {
   virtual const std::vector<clp_s::BaseColumnReader*>& getProjectedColumns()
       const = 0;
 
- protected:
-  /// Preprocesses the query, performing parsing, validation, and optimization.
+  /// Get the type of the split that the cursor is processing.
   ///
-  /// @return The error code.
-  virtual ErrorCode preprocessQuery() = 0;
+  /// @return The split type.
+  ClpConnectorSplit::SplitType getSplitType() const {
+    return splitType_;
+  }
 
+ protected:
   ///
   /// @return The error code.
   virtual ErrorCode loadSplit() = 0;
@@ -118,12 +124,19 @@ class ClpCursor {
 
   clp_s::InputSource inputSource_{clp_s::InputSource::Filesystem};
   std::string splitPath_;
+  ClpConnectorSplit::SplitType splitType_;
   std::string query_;
   std::vector<Field> outputColumns_;
 
   bool currentSplitLoaded_{false};
 
   std::shared_ptr<clp_s::search::ast::Expression> expr_;
+
+ private:
+  /// Preprocesses the query, performing parsing, validation, and optimization.
+  ///
+  /// @return The error code.
+  ErrorCode preprocessQuery();
 };
 
 } // namespace facebook::velox::connector::clp::search_lib

@@ -20,7 +20,7 @@
 
 #include "velox/connectors/Connector.h"
 #include "velox/connectors/clp/ClpConfig.h"
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
+#include "velox/connectors/clp/search_lib/BaseClpCursor.h"
 
 namespace clp_s {
 class BaseColumnReader;
@@ -102,7 +102,7 @@ class ClpDataSource : public DataSource {
 
   std::vector<search_lib::Field> fields_;
 
-  std::unique_ptr<search_lib::ClpCursor> cursor_;
+  std::unique_ptr<search_lib::BaseClpCursor> cursor_;
   std::shared_ptr<ClpS3AuthProviderBase> s3AuthProvider_;
 };
 

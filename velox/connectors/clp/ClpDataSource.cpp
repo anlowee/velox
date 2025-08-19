@@ -163,7 +163,10 @@ VectorPtr ClpDataSource::createVector(
       vectorType,
       vectorSize,
       std::make_unique<search_lib::ClpVectorLoader>(
-          projectedColumn, projectedType, filteredRows),
+          projectedColumn,
+          projectedType,
+          filteredRows,
+          cursor_->getSplitType()),
       std::move(vector));
 }
 

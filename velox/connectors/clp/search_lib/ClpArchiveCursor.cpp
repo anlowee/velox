@@ -20,12 +20,8 @@
 
 #include "clp_s/ArchiveReader.hpp"
 #include "clp_s/search/EvaluateTimestampIndex.hpp"
-#include "clp_s/search/ast/ConvertToExists.hpp"
 #include "clp_s/search/ast/EmptyExpr.hpp"
-#include "clp_s/search/ast/NarrowTypes.hpp"
-#include "clp_s/search/ast/OrOfAndForm.hpp"
 #include "clp_s/search/ast/SearchUtils.hpp"
-#include "clp_s/search/kql/kql.hpp"
 
 using namespace clp_s;
 using namespace clp_s::search;
@@ -36,21 +32,13 @@ namespace facebook::velox::connector::clp::search_lib {
 ClpArchiveCursor::ClpArchiveCursor(
     clp_s::InputSource inputSource,
     std::string_view splitPath)
-    : ClpCursor(inputSource, splitPath),
+    : BaseClpCursor(inputSource, splitPath),
       archiveReader_(std::make_shared<ArchiveReader>()) {}
 
 ClpArchiveCursor::~ClpArchiveCursor() {
   if (currentSplitLoaded_) {
     archiveReader_->close();
   }
-}
-
-void ClpArchiveCursor::executeQuery(
-    const std::string& query,
-    const std::vector<Field>& outputColumns) {
-  query_ = query;
-  outputColumns_ = outputColumns;
-  errorCode_ = preprocessQuery();
 }
 
 uint64_t ClpArchiveCursor::fetchNext(
@@ -111,43 +99,6 @@ ClpArchiveCursor::getProjectedColumns() const {
   }
   static std::vector<clp_s::BaseColumnReader*> const kEmpty;
   return kEmpty;
-}
-
-ErrorCode ClpArchiveCursor::preprocessQuery() {
-  auto queryStream = std::istringstream(query_);
-  expr_ = kql::parse_kql_expression(queryStream);
-  if (nullptr == expr_) {
-    VLOG(2) << "Failed to parse query '" << query_ << "'";
-    return ErrorCode::InvalidQuerySyntax;
-  }
-
-  if (std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  OrOfAndForm standardizePass;
-  if (expr_ = standardizePass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  NarrowTypes narrowPass;
-  if (expr_ = narrowPass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  ConvertToExists convertPass;
-  if (expr_ = convertPass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  return ErrorCode::Success;
 }
 
 ErrorCode ClpArchiveCursor::loadSplit() {

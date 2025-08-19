@@ -124,10 +124,12 @@ auto convertToVeloxTimestamp(int64_t timestamp) -> Timestamp {
 ClpVectorLoader::ClpVectorLoader(
     clp_s::BaseColumnReader* columnReader,
     ColumnType nodeType,
-    std::shared_ptr<std::vector<uint64_t>> filteredRowIndices)
+    std::shared_ptr<std::vector<uint64_t>> filteredRowIndices,
+    ClpConnectorSplit::SplitType splitType)
     : columnReader_(columnReader),
       nodeType_(nodeType),
-      filteredRowIndices_(std::move(filteredRowIndices)) {}
+      filteredRowIndices_(std::move(filteredRowIndices)),
+      splitType_(splitType) {}
 
 template <typename T, typename VectorPtr>
 void ClpVectorLoader::populateData(RowSet rows, VectorPtr vector) {
