@@ -14,7 +14,8 @@
 velox_add_library(
   clp-s-search
   STATIC
-  ClpCursor.cpp
+  ClpArchiveCursor.cpp
+  ClpArchiveCursor.h
   ClpCursor.h
   ClpQueryRunner.cpp
   ClpQueryRunner.h

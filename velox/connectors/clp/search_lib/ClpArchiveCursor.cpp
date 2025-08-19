@@ -16,6 +16,8 @@
 
 #include <glog/logging.h>
 
+#include "ClpArchiveCursor.h"
+
 #include "clp_s/ArchiveReader.hpp"
 #include "clp_s/search/EvaluateTimestampIndex.hpp"
 #include "clp_s/search/ast/ConvertToExists.hpp"
@@ -25,27 +27,25 @@
 #include "clp_s/search/ast/SearchUtils.hpp"
 #include "clp_s/search/kql/kql.hpp"
 
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
-
 using namespace clp_s;
 using namespace clp_s::search;
 using namespace clp_s::search::ast;
 
 namespace facebook::velox::connector::clp::search_lib {
 
-ClpCursor::ClpCursor(InputSource inputSource, std::string archivePath)
-    : errorCode_(ErrorCode::QueryNotInitialized),
-      inputSource_(inputSource),
-      archivePath_(std::move(archivePath)),
+ClpArchiveCursor::ClpArchiveCursor(
+    clp_s::InputSource inputSource,
+    std::string_view splitPath)
+    : ClpCursor(inputSource, splitPath),
       archiveReader_(std::make_shared<ArchiveReader>()) {}
 
-ClpCursor::~ClpCursor() {
-  if (currentArchiveLoaded_) {
+ClpArchiveCursor::~ClpArchiveCursor() {
+  if (currentSplitLoaded_) {
     archiveReader_->close();
   }
 }
 
-void ClpCursor::executeQuery(
+void ClpArchiveCursor::executeQuery(
     const std::string& query,
     const std::vector<Field>& outputColumns) {
   query_ = query;
@@ -53,21 +53,21 @@ void ClpCursor::executeQuery(
   errorCode_ = preprocessQuery();
 }
 
-uint64_t ClpCursor::fetchNext(
+uint64_t ClpArchiveCursor::fetchNext(
     uint64_t numRows,
     const std::shared_ptr<std::vector<uint64_t>>& filteredRowIndices) {
   if (ErrorCode::Success != errorCode_) {
     return 0;
   }
 
-  if (false == currentArchiveLoaded_) {
-    errorCode_ = loadArchive();
+  if (false == currentSplitLoaded_) {
+    errorCode_ = loadSplit();
     if (ErrorCode::Success != errorCode_) {
       return 0;
     }
 
     archiveReader_->open_packed_streams();
-    currentArchiveLoaded_ = true;
+    currentSplitLoaded_ = true;
     queryRunner_ = std::make_shared<ClpQueryRunner>(
         schemaMatch_, expr_, archiveReader_, false, projection_);
     queryRunner_->global_init();
@@ -104,8 +104,8 @@ uint64_t ClpCursor::fetchNext(
   return 0;
 }
 
-const std::vector<clp_s::BaseColumnReader*>& ClpCursor::getProjectedColumns()
-    const {
+const std::vector<clp_s::BaseColumnReader*>&
+ClpArchiveCursor::getProjectedColumns() const {
   if (queryRunner_) {
     return queryRunner_->getProjectedColumns();
   }
@@ -113,7 +113,7 @@ const std::vector<clp_s::BaseColumnReader*>& ClpCursor::getProjectedColumns()
   return kEmpty;
 }
 
-ErrorCode ClpCursor::preprocessQuery() {
+ErrorCode ClpArchiveCursor::preprocessQuery() {
   auto queryStream = std::istringstream(query_);
   expr_ = kql::parse_kql_expression(queryStream);
   if (nullptr == expr_) {
@@ -150,14 +150,14 @@ ErrorCode ClpCursor::preprocessQuery() {
   return ErrorCode::Success;
 }
 
-ErrorCode ClpCursor::loadArchive() {
+ErrorCode ClpArchiveCursor::loadSplit() {
   auto networkAuthOption = inputSource_ == InputSource::Filesystem
       ? NetworkAuthOption{.method = AuthMethod::None}
       : NetworkAuthOption{.method = AuthMethod::S3PresignedUrlV4};
 
   try {
     archiveReader_->open(
-        get_path_object_for_raw_path(archivePath_), networkAuthOption);
+        get_path_object_for_raw_path(splitPath_), networkAuthOption);
   } catch (std::exception& e) {
     VLOG(2) << "Failed to open archive file: " << e.what();
     return ErrorCode::InternalError;

@@ -71,8 +71,11 @@ struct Field {
 /// while supporting projection and batch-oriented retrieval of filtered rows.
 class ClpCursor {
  public:
-  explicit ClpCursor(clp_s::InputSource inputSource, std::string archivePath);
-  ~ClpCursor();
+  explicit ClpCursor(clp_s::InputSource inputSource, std::string_view splitPath)
+      : errorCode_(ErrorCode::QueryNotInitialized),
+        inputSource_(inputSource),
+        splitPath_(std::string(splitPath)) {}
+  virtual ~ClpCursor() = default;
 
   /// Executes a query. This function parses, validates, and prepares the given
   /// query for execution.
@@ -80,54 +83,47 @@ class ClpCursor {
   /// @param query The KQL query to execute.
   /// @param outputColumns A vector specifying the columns to be included in the
   /// query result.
-  void executeQuery(
+  virtual void executeQuery(
       const std::string& query,
-      const std::vector<Field>& outputColumns);
+      const std::vector<Field>& outputColumns) = 0;
 
-  /// Fetches the next set of rows from the cursor. If the archive and schema
+  /// Fetches the next set of rows from the cursor. If the split and schema
   /// are not yet loaded, this function will perform the necessary loading.
   ///
   /// @param numRows The maximum number of rows to fetch.
   /// @param filteredRowIndices A vector of row indices that match the filter.
   /// @return The number of rows scanned.
-  uint64_t fetchNext(
+  virtual uint64_t fetchNext(
       uint64_t numRows,
-      const std::shared_ptr<std::vector<uint64_t>>& filteredRowIndices);
+      const std::shared_ptr<std::vector<uint64_t>>& filteredRowIndices) = 0;
 
   /// Retrieves the projected columns.
   ///
   /// @return A vector of BaseColumnReader pointers representing the projected
   /// columns.
-  const std::vector<clp_s::BaseColumnReader*>& getProjectedColumns() const;
+  virtual const std::vector<clp_s::BaseColumnReader*>& getProjectedColumns()
+      const = 0;
 
- private:
+ protected:
   /// Preprocesses the query, performing parsing, validation, and optimization.
   ///
   /// @return The error code.
-  ErrorCode preprocessQuery();
+  virtual ErrorCode preprocessQuery() = 0;
 
-  /// Loads the archive at the current index.
   ///
   /// @return The error code.
-  ErrorCode loadArchive();
+  virtual ErrorCode loadSplit() = 0;
 
   ErrorCode errorCode_;
 
   clp_s::InputSource inputSource_{clp_s::InputSource::Filesystem};
-  std::string archivePath_;
+  std::string splitPath_;
   std::string query_;
   std::vector<Field> outputColumns_;
-  std::vector<int32_t> matchedSchemas_;
-  size_t currentSchemaIndex_{0};
-  int32_t currentSchemaId_{-1};
-  bool currentSchemaTableLoaded_{false};
-  bool currentArchiveLoaded_{false};
+
+  bool currentSplitLoaded_{false};
 
   std::shared_ptr<clp_s::search::ast::Expression> expr_;
-  std::shared_ptr<clp_s::search::SchemaMatch> schemaMatch_;
-  std::shared_ptr<ClpQueryRunner> queryRunner_;
-  std::shared_ptr<clp_s::search::Projection> projection_;
-  std::shared_ptr<clp_s::ArchiveReader> archiveReader_;
 };
 
 } // namespace facebook::velox::connector::clp::search_lib

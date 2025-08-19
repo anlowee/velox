@@ -20,7 +20,7 @@
 #include "velox/connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/ClpDataSource.h"
 #include "velox/connectors/clp/ClpTableHandle.h"
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
+#include "velox/connectors/clp/search_lib/ClpArchiveCursor.h"
 #include "velox/connectors/clp/search_lib/ClpVectorLoader.h"
 #include "velox/vector/FlatVector.h"
 
@@ -101,12 +101,21 @@ void ClpDataSource::addFieldsRecursively(
 void ClpDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
   auto clpSplit = std::dynamic_pointer_cast<ClpConnectorSplit>(split);
 
-  if (storageType_ == ClpConfig::StorageType::kFs) {
-    cursor_ = std::make_unique<search_lib::ClpCursor>(
-        clp_s::InputSource::Filesystem, clpSplit->path_);
-  } else if (storageType_ == ClpConfig::StorageType::kS3) {
-    cursor_ = std::make_unique<search_lib::ClpCursor>(
-        clp_s::InputSource::Network, clpSplit->path_);
+  clp_s::InputSource inputSource;
+  if (ClpConfig::StorageType::kFs == storageType_) {
+    inputSource = clp_s::InputSource::Filesystem;
+  } else if (ClpConfig::StorageType::kS3 == storageType_) {
+    inputSource = clp_s::InputSource::Network;
+  } else {
+    VELOX_UNREACHABLE();
+  }
+
+  if (ClpConnectorSplit::SplitType::kArchive == clpSplit->type_) {
+    cursor_ = std::make_unique<search_lib::ClpArchiveCursor>(
+        inputSource, clpSplit->path_);
+  } else {
+    VELOX_UNSUPPORTED(
+        "Unsupported split type: {}", static_cast<int>(clpSplit->type_));
   }
 
   auto pushDownQuery = clpSplit->kqlQuery_;
