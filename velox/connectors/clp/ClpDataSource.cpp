@@ -16,6 +16,7 @@
 
 #include <optional>
 
+#include "search_lib/ClpS3AuthProviderBase.h"
 #include "velox/connectors/clp/ClpColumnHandle.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/ClpDataSource.h"
@@ -37,6 +38,7 @@ ClpDataSource::ClpDataSource(
     : pool_(pool), outputType_(outputType) {
   auto clpTableHandle = std::dynamic_pointer_cast<ClpTableHandle>(tableHandle);
   storageType_ = clpConfig->storageType();
+  s3AuthProvider_ = clpConfig->s3AuthProvider();
 
   for (const auto& outputName : outputType->names()) {
     auto columnHandle = columnHandles.find(outputName);
@@ -101,18 +103,20 @@ void ClpDataSource::addFieldsRecursively(
 void ClpDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
   auto clpSplit = std::dynamic_pointer_cast<ClpConnectorSplit>(split);
 
+  std::string splitPath = clpSplit->path_;
   clp_s::InputSource inputSource;
   if (ClpConfig::StorageType::kFs == storageType_) {
     inputSource = clp_s::InputSource::Filesystem;
   } else if (ClpConfig::StorageType::kS3 == storageType_) {
     inputSource = clp_s::InputSource::Network;
+    splitPath = s3AuthProvider_->constructS3Url(clpSplit->path_);
   } else {
     VELOX_UNREACHABLE();
   }
 
   if (ClpConnectorSplit::SplitType::kArchive == clpSplit->type_) {
-    cursor_ = std::make_unique<search_lib::ClpArchiveCursor>(
-        inputSource, clpSplit->path_);
+    cursor_ =
+        std::make_unique<search_lib::ClpArchiveCursor>(inputSource, splitPath);
   } else {
     VELOX_UNSUPPORTED(
         "Unsupported split type: {}", static_cast<int>(clpSplit->type_));

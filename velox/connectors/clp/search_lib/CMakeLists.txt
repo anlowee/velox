@@ -17,8 +17,12 @@ velox_add_library(
   ClpArchiveCursor.cpp
   ClpArchiveCursor.h
   ClpCursor.h
+  ClpPackageS3AuthProvider.cpp
+  ClpPackageS3AuthProvider.h
   ClpQueryRunner.cpp
   ClpQueryRunner.h
+  ClpS3AuthProviderBase.cpp
+  ClpS3AuthProviderBase.h
   ClpVectorLoader.cpp
   ClpVectorLoader.h)
 
