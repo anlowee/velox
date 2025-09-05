@@ -20,7 +20,7 @@
 
 #include "velox/connectors/Connector.h"
 #include "velox/connectors/clp/ClpConfig.h"
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
+#include "velox/connectors/clp/search_lib/BaseClpCursor.h"
 
 namespace clp_s {
 class BaseColumnReader;
@@ -74,25 +74,6 @@ class ClpDataSource : public DataSource {
       const TypePtr& columnType,
       const std::string& parentName);
 
-  /// Creates a Vector of the specified type and size.
-  ///
-  /// This method recursively creates vectors for complex types like ROW. For
-  /// primitive types, it creates a LazyVector that will load the data from the
-  /// underlying data source when it is accessed.
-  ///
-  /// @param vectorType
-  /// @param vectorSize
-  /// @param projectedColumns The readers of the projected columns.
-  /// @param filteredRows The rows to be read.
-  /// @param readerIndex The index of the column reader.
-  /// @return A Vector of the specified type and size.
-  VectorPtr createVector(
-      const TypePtr& vectorType,
-      size_t vectorSize,
-      const std::vector<clp_s::BaseColumnReader*>& projectedColumns,
-      const std::shared_ptr<std::vector<uint64_t>>& filteredRows,
-      size_t& readerIndex);
-
   ClpConfig::StorageType storageType_;
   velox::memory::MemoryPool* pool_;
   RowTypePtr outputType_;
@@ -102,7 +83,7 @@ class ClpDataSource : public DataSource {
 
   std::vector<search_lib::Field> fields_;
 
-  std::unique_ptr<search_lib::ClpCursor> cursor_;
+  std::unique_ptr<search_lib::BaseClpCursor> cursor_;
   std::shared_ptr<ClpS3AuthProviderBase> s3AuthProvider_;
 };
 

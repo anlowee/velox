@@ -19,11 +19,9 @@
 #include "velox/connectors/clp/ClpColumnHandle.h"
 #include "velox/connectors/clp/ClpConnectorSplit.h"
 #include "velox/connectors/clp/ClpDataSource.h"
-
-#include "search_lib/ClpS3AuthProviderBase.h"
 #include "velox/connectors/clp/ClpTableHandle.h"
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
-#include "velox/connectors/clp/search_lib/ClpVectorLoader.h"
+#include "velox/connectors/clp/search_lib/ClpS3AuthProviderBase.h"
+#include "velox/connectors/clp/search_lib/archive/ClpArchiveCursor.h"
 #include "velox/vector/FlatVector.h"
 
 namespace facebook::velox::connector::clp {
@@ -104,13 +102,23 @@ void ClpDataSource::addFieldsRecursively(
 void ClpDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
   auto clpSplit = std::dynamic_pointer_cast<ClpConnectorSplit>(split);
 
-  if (storageType_ == ClpConfig::StorageType::kFs) {
-    cursor_ = std::make_unique<search_lib::ClpCursor>(
-        clp_s::InputSource::Filesystem, clpSplit->path_);
-  } else if (storageType_ == ClpConfig::StorageType::kS3) {
-    cursor_ = std::make_unique<search_lib::ClpCursor>(
-        clp_s::InputSource::Network,
-        s3AuthProvider_->constructS3Url(clpSplit->path_));
+  std::string splitPath = clpSplit->path_;
+  clp_s::InputSource inputSource;
+  if (ClpConfig::StorageType::kFs == storageType_) {
+    inputSource = clp_s::InputSource::Filesystem;
+  } else if (ClpConfig::StorageType::kS3 == storageType_) {
+    inputSource = clp_s::InputSource::Network;
+    splitPath = s3AuthProvider_->constructS3Url(clpSplit->path_);
+  } else {
+    VELOX_UNREACHABLE();
+  }
+
+  if (ClpConnectorSplit::SplitType::kArchive == clpSplit->type_) {
+    cursor_ =
+        std::make_unique<search_lib::ClpArchiveCursor>(inputSource, splitPath);
+  } else {
+    VELOX_UNSUPPORTED(
+        "Unsupported split type: {}", static_cast<int>(clpSplit->type_));
   }
 
   auto pushDownQuery = clpSplit->kqlQuery_;
@@ -121,63 +129,17 @@ void ClpDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
   }
 }
 
-VectorPtr ClpDataSource::createVector(
-    const TypePtr& vectorType,
-    size_t vectorSize,
-    const std::vector<clp_s::BaseColumnReader*>& projectedColumns,
-    const std::shared_ptr<std::vector<uint64_t>>& filteredRows,
-    size_t& readerIndex) {
-  if (vectorType->kind() == TypeKind::ROW) {
-    std::vector<VectorPtr> children;
-    auto& rowType = vectorType->as<TypeKind::ROW>();
-    for (uint32_t i = 0; i < rowType.size(); ++i) {
-      children.push_back(createVector(
-          rowType.childAt(i),
-          vectorSize,
-          projectedColumns,
-          filteredRows,
-          readerIndex));
-    }
-    return std::make_shared<RowVector>(
-        pool_, vectorType, nullptr, vectorSize, std::move(children));
-  }
-  auto vector = BaseVector::create(vectorType, vectorSize, pool_);
-  vector->setNulls(allocateNulls(vectorSize, pool_, bits::kNull));
-
-  VELOX_CHECK_LT(
-      readerIndex, projectedColumns.size(), "Reader index out of bounds");
-  auto projectedColumn = projectedColumns[readerIndex];
-  auto projectedType = fields_[readerIndex].type;
-  readerIndex++;
-  return std::make_shared<LazyVector>(
-      pool_,
-      vectorType,
-      vectorSize,
-      std::make_unique<search_lib::ClpVectorLoader>(
-          projectedColumn, projectedType, filteredRows),
-      std::move(vector));
-}
-
 std::optional<RowVectorPtr> ClpDataSource::next(
     uint64_t size,
     ContinueFuture& future) {
-  auto filteredRows = std::make_shared<std::vector<uint64_t>>();
-  auto rowsScanned = cursor_->fetchNext(size, filteredRows);
-  auto rowsFiltered = filteredRows->size();
+  auto rowsScanned = cursor_->fetchNext(size);
+  auto rowsFiltered = cursor_->getNumFilteredRows();
   if (rowsFiltered == 0) {
     return nullptr;
   }
   completedRows_ += rowsScanned;
-  size_t readerIndex = 0;
-  const auto& projectedColumns = cursor_->getProjectedColumns();
-  VELOX_CHECK_EQ(
-      projectedColumns.size(),
-      fields_.size(),
-      "Projected columns size {} does not match fields size {}",
-      projectedColumns.size(),
-      fields_.size());
-  return std::dynamic_pointer_cast<RowVector>(createVector(
-      outputType_, rowsFiltered, projectedColumns, filteredRows, readerIndex));
+  return std::dynamic_pointer_cast<RowVector>(
+      cursor_->createVector(pool_, outputType_, rowsFiltered));
 }
 
 } // namespace facebook::velox::connector::clp

@@ -18,14 +18,11 @@
 
 #include "clp_s/ArchiveReader.hpp"
 #include "clp_s/search/EvaluateTimestampIndex.hpp"
-#include "clp_s/search/ast/ConvertToExists.hpp"
 #include "clp_s/search/ast/EmptyExpr.hpp"
-#include "clp_s/search/ast/NarrowTypes.hpp"
-#include "clp_s/search/ast/OrOfAndForm.hpp"
 #include "clp_s/search/ast/SearchUtils.hpp"
-#include "clp_s/search/kql/kql.hpp"
-
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
+#include "velox/connectors/clp/search_lib/archive/ClpArchiveCursor.h"
+#include "velox/connectors/clp/search_lib/archive/ClpArchiveVectorLoader.h"
+#include "velox/connectors/clp/search_lib/archive/ClpQueryRunner.h"
 
 using namespace clp_s;
 using namespace clp_s::search;
@@ -33,44 +30,32 @@ using namespace clp_s::search::ast;
 
 namespace facebook::velox::connector::clp::search_lib {
 
-ClpCursor::ClpCursor(InputSource inputSource, std::string archivePath)
-    : errorCode_(ErrorCode::QueryNotInitialized),
-      inputSource_(inputSource),
-      archivePath_(std::move(archivePath)),
-      archiveReader_(std::make_shared<ArchiveReader>()) {}
+ClpArchiveCursor::ClpArchiveCursor(
+    clp_s::InputSource inputSource,
+    std::string_view splitPath)
+    : BaseClpCursor(inputSource, splitPath),
+      archiveReader_(std::make_shared<ArchiveReader>()),
+      filteredRowIndices_(std::make_shared<std::vector<uint64_t>>()) {}
 
-ClpCursor::~ClpCursor() {
-  if (currentArchiveLoaded_) {
+ClpArchiveCursor::~ClpArchiveCursor() {
+  if (currentSplitLoaded_) {
     archiveReader_->close();
   }
 }
 
-void ClpCursor::executeQuery(
-    const std::string& query,
-    const std::vector<Field>& outputColumns) {
-  query_ = query;
-  outputColumns_ = outputColumns;
-  errorCode_ = preprocessQuery();
-}
+uint64_t ClpArchiveCursor::fetchNext(uint64_t numRows) {
+  filteredRowIndices_->clear();
+  readerIndex_ = 0;
 
-uint64_t ClpCursor::fetchNext(
-    uint64_t numRows,
-    const std::shared_ptr<std::vector<uint64_t>>& filteredRowIndices) {
   if (ErrorCode::Success != errorCode_) {
     return 0;
   }
 
-  if (false == currentArchiveLoaded_) {
-    errorCode_ = loadArchive();
+  if (false == currentSplitLoaded_) {
+    errorCode_ = loadSplit();
     if (ErrorCode::Success != errorCode_) {
       return 0;
     }
-
-    archiveReader_->open_packed_streams();
-    currentArchiveLoaded_ = true;
-    queryRunner_ = std::make_shared<ClpQueryRunner>(
-        schemaMatch_, expr_, archiveReader_, false, projection_);
-    queryRunner_->global_init();
   }
 
   while (currentSchemaIndex_ < matchedSchemas_.size()) {
@@ -92,8 +77,8 @@ uint64_t ClpCursor::fetchNext(
       currentSchemaTableLoaded_ = true;
     }
 
-    auto rowsScanned = queryRunner_->fetchNext(numRows, filteredRowIndices);
-    if (false == filteredRowIndices->empty()) {
+    auto rowsScanned = queryRunner_->fetchNext(numRows, filteredRowIndices_);
+    if (false == filteredRowIndices_->empty()) {
       return rowsScanned;
     }
 
@@ -104,8 +89,26 @@ uint64_t ClpCursor::fetchNext(
   return 0;
 }
 
-const std::vector<clp_s::BaseColumnReader*>& ClpCursor::getProjectedColumns()
-    const {
+size_t ClpArchiveCursor::getNumFilteredRows() const {
+  return filteredRowIndices_->size();
+}
+
+VectorPtr ClpArchiveCursor::createVector(
+    memory::MemoryPool* pool,
+    const TypePtr& vectorType,
+    size_t vectorSize) {
+  auto projectedColumns = getProjectedColumns();
+  VELOX_CHECK_EQ(
+      projectedColumns.size(),
+      outputColumns_.size(),
+      "Projected columns size {} does not match fields size {}",
+      projectedColumns.size(),
+      outputColumns_.size());
+  return createVectorHelper(pool, vectorType, vectorSize, projectedColumns);
+}
+
+const std::vector<clp_s::BaseColumnReader*>&
+ClpArchiveCursor::getProjectedColumns() const {
   if (queryRunner_) {
     return queryRunner_->getProjectedColumns();
   }
@@ -113,51 +116,14 @@ const std::vector<clp_s::BaseColumnReader*>& ClpCursor::getProjectedColumns()
   return kEmpty;
 }
 
-ErrorCode ClpCursor::preprocessQuery() {
-  auto queryStream = std::istringstream(query_);
-  expr_ = kql::parse_kql_expression(queryStream);
-  if (nullptr == expr_) {
-    VLOG(2) << "Failed to parse query '" << query_ << "'";
-    return ErrorCode::InvalidQuerySyntax;
-  }
-
-  if (std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  OrOfAndForm standardizePass;
-  if (expr_ = standardizePass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  NarrowTypes narrowPass;
-  if (expr_ = narrowPass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  ConvertToExists convertPass;
-  if (expr_ = convertPass.run(expr_);
-      std::dynamic_pointer_cast<EmptyExpr>(expr_)) {
-    VLOG(2) << "Query '" << query_ << "' is logically false";
-    return ErrorCode::LogicalError;
-  }
-
-  return ErrorCode::Success;
-}
-
-ErrorCode ClpCursor::loadArchive() {
+ErrorCode ClpArchiveCursor::loadSplit() {
   auto networkAuthOption = inputSource_ == InputSource::Filesystem
       ? NetworkAuthOption{.method = AuthMethod::None}
       : NetworkAuthOption{.method = AuthMethod::S3PresignedUrlV4};
 
   try {
     archiveReader_->open(
-        get_path_object_for_raw_path(archivePath_), networkAuthOption);
+        get_path_object_for_raw_path(splitPath_), networkAuthOption);
   } catch (std::exception& e) {
     VLOG(2) << "Failed to open archive file: " << e.what();
     return ErrorCode::InternalError;
@@ -256,7 +222,45 @@ ErrorCode ClpCursor::loadArchive() {
 
   currentSchemaIndex_ = 0;
   currentSchemaTableLoaded_ = false;
+
+  archiveReader_->open_packed_streams();
+  currentSplitLoaded_ = true;
+  queryRunner_ = std::make_shared<ClpQueryRunner>(
+      schemaMatch_, expr_, archiveReader_, false, projection_);
+  queryRunner_->global_init();
   return ErrorCode::Success;
+}
+
+VectorPtr ClpArchiveCursor::createVectorHelper(
+    memory::MemoryPool* pool,
+    const TypePtr& vectorType,
+    size_t vectorSize,
+    const std::vector<clp_s::BaseColumnReader*>& projectedColumns) {
+  if (vectorType->kind() == TypeKind::ROW) {
+    std::vector<VectorPtr> children;
+    auto& rowType = vectorType->as<TypeKind::ROW>();
+    for (uint32_t i = 0; i < rowType.size(); ++i) {
+      children.push_back(createVectorHelper(
+          pool, rowType.childAt(i), vectorSize, projectedColumns));
+    }
+    return std::make_shared<RowVector>(
+        pool, vectorType, nullptr, vectorSize, std::move(children));
+  }
+  auto vector = BaseVector::create(vectorType, vectorSize, pool);
+  vector->setNulls(allocateNulls(vectorSize, pool, bits::kNull));
+
+  VELOX_CHECK_LT(
+      readerIndex_, projectedColumns.size(), "Reader index out of bounds");
+  auto projectedColumn = projectedColumns[readerIndex_];
+  auto projectedType = outputColumns_[readerIndex_].type;
+  readerIndex_++;
+  return std::make_shared<LazyVector>(
+      pool,
+      vectorType,
+      vectorSize,
+      std::make_unique<ClpArchiveVectorLoader>(
+          projectedColumn, projectedType, filteredRowIndices_),
+      std::move(vector));
 }
 
 } // namespace facebook::velox::connector::clp::search_lib

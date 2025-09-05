@@ -16,10 +16,10 @@
 
 #pragma once
 
+#include <simdjson.h>
+
 #include "clp_s/ColumnReader.hpp"
 #include "clp_s/SchemaTree.hpp"
-
-#include "velox/connectors/clp/search_lib/ClpCursor.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/LazyVector.h"
@@ -30,17 +30,26 @@ class BaseColumnReader;
 
 namespace facebook::velox::connector::clp::search_lib {
 
-/// A custom Velox VectorLoader that populates Velox vectors from a CLP-based
-/// column reader. It supports various column types including integers, floats,
-/// booleans, strings, and arrays of strings.
-class ClpVectorLoader : public VectorLoader {
+enum class ColumnType;
+
+/// A custom Velox VectorLoader that populates Velox vectors using a CLP-based
+/// column reader over archives. It supports various column types including
+/// integers, floats, booleans, strings, and arrays of strings.
+class ClpArchiveVectorLoader : public VectorLoader {
  public:
-  ClpVectorLoader(
+  ClpArchiveVectorLoader(
       clp_s::BaseColumnReader* columnReader,
       ColumnType nodeType,
-      std::shared_ptr<std::vector<uint64_t>> filteredRowIndices);
+      const std::shared_ptr<std::vector<uint64_t>> filteredRowIndices);
 
  private:
+  inline static thread_local std::unique_ptr<simdjson::ondemand::parser>
+      arrayParser_ = std::make_unique<simdjson::ondemand::parser>();
+
+  clp_s::BaseColumnReader* columnReader_;
+  ColumnType nodeType_;
+  std::shared_ptr<std::vector<uint64_t>> filteredRowIndices_;
+
   void loadInternal(
       RowSet rows,
       ValueHook* hook,
@@ -54,13 +63,6 @@ class ClpVectorLoader : public VectorLoader {
   void populateTimestampData(
       RowSet rows,
       FlatVector<facebook::velox::Timestamp>* vector);
-
-  clp_s::BaseColumnReader* columnReader_;
-  ColumnType nodeType_;
-  std::shared_ptr<std::vector<uint64_t>> filteredRowIndices_;
-
-  inline static thread_local std::unique_ptr<simdjson::ondemand::parser>
-      arrayParser_ = std::make_unique<simdjson::ondemand::parser>();
 };
 
 } // namespace facebook::velox::connector::clp::search_lib
