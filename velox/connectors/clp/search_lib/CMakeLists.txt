@@ -22,7 +22,11 @@ velox_add_library(
   ClpS3AuthProviderBase.h)
 
 add_subdirectory(archive)
+add_subdirectory(ir)
 
-velox_link_libraries(clp-s-search PUBLIC clp-s-archive-search)
+velox_link_libraries(
+  clp-s-search
+  PUBLIC clp-s-archive-search
+  PUBLIC clp-s-ir-search)
 
 target_compile_features(clp-s-search PRIVATE cxx_std_20)

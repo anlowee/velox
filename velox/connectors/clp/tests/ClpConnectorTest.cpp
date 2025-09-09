@@ -132,6 +132,31 @@ TEST_F(ClpConnectorTest, test1NoPushdown) {
            "GET",
        })});
   test::assertEqualVectors(expected, output);
+
+  // The IR stream will be deserialized in order, so the expected vector is
+  // different
+  auto irExpected = makeRowVector(
+      {// requestId
+       makeFlatVector<StringView>(
+           {"req-100", "req-102", "req-105", "req-107", "req-109"}),
+       // userId
+       makeNullableFlatVector<StringView>(
+           {"user201", std::nullopt, "user204", "user202", "user203"}),
+       // method
+       makeFlatVector<StringView>({
+           "GET",
+           "GET",
+           "GET",
+           "GET",
+           "GET",
+       })});
+  auto irOutput = getResults(
+      plan,
+      {makeClpSplit(
+          getExampleFilePath("test_1_ir.clps"),
+          ClpConnectorSplit::SplitType::kIr,
+          kqlQuery)});
+  test::assertEqualVectors(irExpected, irOutput);
 }
 
 TEST_F(ClpConnectorTest, test1Pushdown) {
@@ -172,6 +197,14 @@ TEST_F(ClpConnectorTest, test1Pushdown) {
                      // path
                      makeFlatVector<StringView>({"/auth/login"})});
   test::assertEqualVectors(expected, output);
+
+  auto irOutput = getResults(
+      plan,
+      {makeClpSplit(
+          getExampleFilePath("test_1_ir.clps"),
+          ClpConnectorSplit::SplitType::kIr,
+          kqlQuery)});
+  test::assertEqualVectors(expected, irOutput);
 }
 
 TEST_F(ClpConnectorTest, test2NoPushdown) {
@@ -223,6 +256,50 @@ TEST_F(ClpConnectorTest, test2NoPushdown) {
                          makeFlatVector<StringView>({"WARNING"}),
                      })});
   test::assertEqualVectors(expected, output);
+
+  // IR stream currently does not support TIMESTAMP type; will merge into the
+  // plan above as soon as this feature is implemented
+  auto irPlan =
+      PlanBuilder(pool_.get())
+          .startTableScan()
+          .outputType(
+              ROW({"event"},
+                  {ROW(
+                      {"type", "subtype", "severity", "tags"},
+                      {VARCHAR(), VARCHAR(), VARCHAR(), ARRAY(VARCHAR())})}))
+          .tableHandle(
+              std::make_shared<ClpTableHandle>(kClpConnectorId, "test_2"))
+          .assignments(
+              {{"event",
+                std::make_shared<ClpColumnHandle>(
+                    "event",
+                    "event",
+                    ROW({"type", "subtype", "severity", "tags"},
+                        {VARCHAR(), VARCHAR(), VARCHAR(), ARRAY(VARCHAR())}))}})
+          .endTableScan()
+          .filter(
+              "event.severity IN ('WARNING', 'ERROR') AND "
+              "((event.type = 'network' AND event.subtype = 'connection') OR "
+              "(event.type = 'storage' AND event.subtype LIKE 'disk_usage%'))")
+          .planNode();
+  auto irOutput = getResults(
+      irPlan,
+      {makeClpSplit(
+          getExampleFilePath("test_2_ir.clps"),
+          ClpConnectorSplit::SplitType::kIr,
+          kqlQuery)});
+  auto irExpected = makeRowVector(
+      {// event
+       makeRowVector(
+           {// event.type
+            makeFlatVector<StringView>({"storage"}),
+            // event.subtype
+            makeFlatVector<StringView>({"disk_usage"}),
+            // event.severity
+            makeFlatVector<StringView>({"WARNING"}),
+            // event.tags
+            makeArrayVector<StringView>({{"\"backup\"", "\"daily\""}})})});
+  test::assertEqualVectors(irExpected, irOutput);
 }
 
 TEST_F(ClpConnectorTest, test2Pushdown) {
@@ -272,6 +349,46 @@ TEST_F(ClpConnectorTest, test2Pushdown) {
                          makeFlatVector<StringView>({"WARNING"}),
                      })});
   test::assertEqualVectors(expected, output);
+
+  // IR stream currently does not support TIMESTAMP type; will merge into the
+  // plan above as soon as this feature is implemented
+  auto irPlan =
+      PlanBuilder(pool_.get())
+          .startTableScan()
+          .outputType(
+              ROW({"event"},
+                  {ROW(
+                      {"type", "subtype", "severity", "tags"},
+                      {VARCHAR(), VARCHAR(), VARCHAR(), ARRAY(VARCHAR())})}))
+          .tableHandle(
+              std::make_shared<ClpTableHandle>(kClpConnectorId, "test_2"))
+          .assignments(
+              {{"event",
+                std::make_shared<ClpColumnHandle>(
+                    "event",
+                    "event",
+                    ROW({"type", "subtype", "severity", "tags"},
+                        {VARCHAR(), VARCHAR(), VARCHAR(), ARRAY(VARCHAR())}))}})
+          .endTableScan()
+          .planNode();
+  auto irOutput = getResults(
+      irPlan,
+      {makeClpSplit(
+          getExampleFilePath("test_2_ir.clps"),
+          ClpConnectorSplit::SplitType::kIr,
+          kqlQuery)});
+  auto irExpected = makeRowVector(
+      {// event
+       makeRowVector({// event.type
+                      makeFlatVector<StringView>({"storage"}),
+                      // event.subtype
+                      makeFlatVector<StringView>({"disk_usage"}),
+                      // event.severity
+                      makeFlatVector<StringView>({"WARNING"}),
+                      // event.tags
+                      makeArrayVector<StringView>(
+                          {{"\"filesystem\"", "\"monitoring\""}})})});
+  test::assertEqualVectors(irExpected, irOutput);
 }
 
 TEST_F(ClpConnectorTest, test2Hybrid) {

@@ -11,14 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-include_guard(GLOBAL)
+velox_add_library(
+  clp-s-ir-search
+  STATIC
+  ClpIrCursor.cpp
+  ClpIrCursor.h
+  ClpIrUnitHandler.h
+  ClpIrVectorLoader.cpp
+  ClpIrVectorLoader.h)
 
-FetchContent_Declare(
-  ystdlib_cpp
-  GIT_REPOSITORY https://github.com/y-scope/ystdlib-cpp.git
-  GIT_TAG 0ae886c6a7ee706a3c6e1950262b63d72f71fe63)
-
-FetchContent_Populate(ystdlib_cpp)
-
-set(CLP_YSTDLIB_SOURCE_DIRECTORY "${ystdlib_cpp_SOURCE_DIR}")
-include_directories(${ystdlib_cpp_SOURCE_DIR}/src)
+velox_link_libraries(
+  clp-s-ir-search
+  PUBLIC clp_s::archive_reader
+  PRIVATE
+    # Once the IR-stream-related targets are exported, this should be updated to
+    # use more fine-grained dependencies.
+    clp_s::clp_dependencies
+    clp_s::io
+    clp_s::search
+    clp_s::search::kql
+    velox_vector)

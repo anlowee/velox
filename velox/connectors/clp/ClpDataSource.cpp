@@ -22,6 +22,7 @@
 #include "velox/connectors/clp/ClpTableHandle.h"
 #include "velox/connectors/clp/search_lib/ClpS3AuthProviderBase.h"
 #include "velox/connectors/clp/search_lib/archive/ClpArchiveCursor.h"
+#include "velox/connectors/clp/search_lib/ir/ClpIrCursor.h"
 #include "velox/vector/FlatVector.h"
 
 namespace facebook::velox::connector::clp {
@@ -116,6 +117,9 @@ void ClpDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
   if (ClpConnectorSplit::SplitType::kArchive == clpSplit->type_) {
     cursor_ =
         std::make_unique<search_lib::ClpArchiveCursor>(inputSource, splitPath);
+  } else if (ClpConnectorSplit::SplitType::kIr == clpSplit->type_) {
+    cursor_ =
+        std::make_unique<search_lib::ClpIrCursor>(inputSource, splitPath, true);
   } else {
     VELOX_UNSUPPORTED(
         "Unsupported split type: {}", static_cast<int>(clpSplit->type_));
