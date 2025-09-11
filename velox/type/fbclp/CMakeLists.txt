@@ -26,7 +26,7 @@ if(${VELOX_ENABLE_CLP_CONNECTOR})
   flex_target(
     ClpTypeParserScanner ClpTypeParser.ll
     ${CMAKE_CURRENT_BINARY_DIR}/ClpScanner.cpp
-    COMPILE_FLAGS "-Cf --prefix=veloxtp")
+    COMPILE_FLAGS "-Cf --prefix=veloxtpclp")
 
   add_flex_bison_dependency(ClpTypeParserScanner ClpTypeParser)
 
