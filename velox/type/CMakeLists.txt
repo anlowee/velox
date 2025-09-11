@@ -18,6 +18,7 @@ endif()
 add_subdirectory(parser)
 add_subdirectory(tz)
 add_subdirectory(fbhive)
+add_subdirectory(fbclp)
 
 velox_add_library(
   velox_type
