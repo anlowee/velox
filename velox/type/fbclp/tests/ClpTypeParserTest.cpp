@@ -23,10 +23,16 @@ namespace facebook::velox::type::fbclp {
 
 class TypeParserTest : public ::testing::Test {};
 
-TEST_F(TypeParserTest, rowType) {
+TEST_F(TypeParserTest, rowTypeWithSpecialChars) {
   ASSERT_EQ(
       *parseClpType(
           "row($dollar$sign$ bigint,-da-sh- varchar,#ha#sh# varchar, @a@t@ varchar, \\sla\\sh\\ varchar)"),
+      *ROW(
+          {"$dollar$sign$", "-da-sh-", "#ha#sh#", "@a@t@", "\\sla\\sh\\"},
+          {BIGINT(), VARCHAR(), VARCHAR(), VARCHAR(), VARCHAR()}));
+  ASSERT_EQ(
+      *parseClpType(
+          "row(\"$dollar$sign$ bigint\",\"-da-sh-\" varchar,\"#ha#sh#\" varchar,\"@a@t@\" varchar,\"\\sla\\sh\\\" varchar)"),
       *ROW(
           {"$dollar$sign$", "-da-sh-", "#ha#sh#", "@a@t@", "\\sla\\sh\\"},
           {BIGINT(), VARCHAR(), VARCHAR(), VARCHAR(), VARCHAR()}));

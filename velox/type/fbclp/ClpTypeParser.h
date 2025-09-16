@@ -32,6 +32,8 @@ namespace facebook::velox::type::fbclp {
 /// Quoted field names are supported.
 /// All custom types need to be registered. An error is thrown otherwise.
 /// Uses the Type::getType API to convert a string to Velox type.
+/// This CLP variant additionally supports unquoted field names containing
+/// '-', '@', '#', '$', and '\\'.
 TypePtr parseClpType(const std::string& typeText);
 
 } // namespace facebook::velox::type::fbclp
