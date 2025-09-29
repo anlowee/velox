@@ -59,10 +59,10 @@ VectorPtr ClpIrCursor::createVector(
     const TypePtr& vectorType,
     size_t vectorSize) {
   VELOX_CHECK_EQ(
-      projectedColumnIdxNodeIdMap_.size(),
+      projectedColumnIdxNodeIdsMap_.size(),
       outputColumns_.size(),
-      "Projected columns size {} does not match fields size {}",
-      projectedColumnIdxNodeIdMap_.size(),
+      "Resolved node-id map size ({}) must not exceed projected columns ({})",
+      projectedColumnIdxNodeIdsMap_.size(),
       outputColumns_.size());
   return createVectorHelper(pool, vectorType, vectorSize);
 }
@@ -133,9 +133,8 @@ ClpIrCursor::splitFieldsToNamesAndTypes() const {
             search::ast::LiteralType::ClpStringT;
         break;
       case ColumnType::Timestamp:
-        // TODO: IR timestamp support pending; constrain to Unknown to avoid
-        // mismatched projections.
-        literalType = search::ast::LiteralType::EpochDateT;
+        literalType = search::ast::LiteralType::FloatT |
+            search::ast::LiteralType::IntegerT;
         break;
       default:
         literalType = search::ast::LiteralType::UnknownT;
@@ -189,11 +188,12 @@ VectorPtr ClpIrCursor::createVectorHelper(
       readerIndex_, outputColumns_.size(), "Reader index out of bounds");
   auto projectedColumn = outputColumns_[readerIndex_];
   auto projectedColumnType = projectedColumn.type;
-  auto it = projectedColumnIdxNodeIdMap_.find(readerIndex_);
-  bool isResolved = it != projectedColumnIdxNodeIdMap_.end();
-  ::clp::ffi::SchemaTree::Node::id_t projectedColumnNodeId;
+  auto it = projectedColumnIdxNodeIdsMap_.find(readerIndex_);
+  std::vector<::clp::ffi::SchemaTree::Node::id_t> projectedColumnNodeIds{};
+  bool isResolved =
+      it != projectedColumnIdxNodeIdsMap_.end() && !it->second.empty();
   if (isResolved) {
-    projectedColumnNodeId = it->second;
+    projectedColumnNodeIds = it->second;
   }
   readerIndex_++;
   return std::make_shared<LazyVector>(
@@ -201,10 +201,11 @@ VectorPtr ClpIrCursor::createVectorHelper(
       vectorType,
       vectorSize,
       std::make_unique<ClpIrVectorLoader>(
+          irDeserializer_->get_ir_unit_handler().getFilteredLogEvents(),
           isResolved,
-          projectedColumnType,
-          projectedColumnNodeId,
-          irDeserializer_->get_ir_unit_handler().getFilteredLogEvents()),
+          std::move(projectedColumnNodeIds),
+          projectedColumn.name,
+          projectedColumnType),
       std::move(vector));
 }
 
